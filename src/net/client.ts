@@ -13,7 +13,7 @@ import { Game, type BodyState, type GameConfig, type GameState } from '../sim/ga
 import { TICK_DT, TICK_RATE } from '../sim/rl';
 import { ByteReader, quantizeInput } from '../sim/state';
 import { EMPTY_INPUT, type CarInput } from '../input/types';
-import { DEFAULT_MATCH_SETTINGS, PROTOCOL_VERSION, Packet, encodeInputs, encodePing, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
+import { DEFAULT_MATCH_SETTINGS, PROTOCOL_VERSION, Packet, clampBody, encodeInputs, encodePing, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
 import { joinRoom, type Link } from './transport';
 import { liveCarState, type CarRenderState, type LobbyState, type Session } from './session';
 
@@ -111,10 +111,11 @@ export class ClientSession implements Session {
   }
 
   /** Connect, say hello, wait to be admitted. */
-  static async create(code: string, name: string, dodgeDeadzone: number): Promise<ClientSession> {
+  static async create(code: string, name: string, dodgeDeadzone: number, body: number): Promise<ClientSession> {
     const { peer, link } = await joinRoom(code);
     const session = new ClientSession(peer, link, code);
     session.dodgeDeadzone = dodgeDeadzone;
+    session.body = body;
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         session.leave();
@@ -125,13 +126,21 @@ export class ClientSession implements Session {
         if (err) reject(new Error(err));
         else resolve();
       };
-      link.sendCtrl({ t: 'hello', name, version: PROTOCOL_VERSION, dodgeDeadzone });
+      link.sendCtrl({ t: 'hello', name, version: PROTOCOL_VERSION, dodgeDeadzone, body });
     });
     return session;
   }
 
   private admitted: ((err: string | null) => void) | null = null;
   private dodgeDeadzone = 0.5;
+  private body = 0;
+
+  /** Change own car body; the host echoes it to everyone in the next lobby update. */
+  setBody(body: number): void {
+    if (body === this.body) return;
+    this.body = body;
+    this.link.sendCtrl({ t: 'body', body });
+  }
 
   get lobby(): LobbyState {
     return {
@@ -522,7 +531,7 @@ export class ClientSession implements Session {
     const game = this.game;
     if (!game || !this.synced) return [];
     const out: CarRenderState[] = [];
-    const mine = liveCarState(game, this.localId, this.alpha, this.nameOf(this.localId));
+    const mine = liveCarState(game, this.localId, this.alpha, this.nameOf(this.localId), this.body);
     if (mine) {
       mine.offsetPos = this.smoothCarPos;
       mine.offsetQuat = this.smoothCarQuat;
@@ -562,6 +571,7 @@ export class ClientSession implements Session {
         id,
         team: buf.team,
         name: this.nameOf(id),
+        body: this.bodyOf(id),
         prev: a.body,
         curr: b.body,
         alpha,
@@ -586,6 +596,10 @@ export class ClientSession implements Session {
 
   private nameOf(id: number): string {
     return this.players.find((p) => p.slot === id)?.name ?? '';
+  }
+
+  private bodyOf(id: number): number {
+    return clampBody(this.players.find((p) => p.slot === id)?.body);
   }
 
   resetMatch(): void {

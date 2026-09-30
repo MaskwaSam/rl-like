@@ -5,6 +5,15 @@
  */
 import * as THREE from 'three';
 
+/**
+ * Lit surfaces stay below the bloom threshold (linear HDR, before tone mapping), so only colours
+ * pushed above it glow: lights, pads, goal frames, boost flames. `glow(hex, k)` makes one.
+ */
+export const GLOW = 4;
+export function glow(hex: number, k = GLOW): THREE.Color {
+  return new THREE.Color(hex).multiplyScalar(k);
+}
+
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
 const tmpSide = new THREE.Vector3();
@@ -32,8 +41,10 @@ export class Ribbon {
     color: number,
     private readonly lifetime: number,
     opacity = 0.7,
+    /** Multiplier on the colour; above 1 pushes the trail into the bloom pass. */
+    intensity = 1,
   ) {
-    this.color.setHex(color);
+    this.color.setHex(color).multiplyScalar(intensity);
     this.geometry = new THREE.BufferGeometry();
     this.positions = new Float32Array(maxPoints * 2 * 3);
     this.colors = new Float32Array(maxPoints * 2 * 3);
@@ -181,8 +192,10 @@ export class Explosion {
   private readonly duration = 1.3;
   done = false;
 
-  constructor(pos: THREE.Vector3, color: number) {
+  constructor(pos: THREE.Vector3, hex: number) {
     this.group.position.copy(pos);
+    // Over-bright so the burst blooms; harmless when bloom is off (it just clips to the hue).
+    const color = new THREE.Color(hex).multiplyScalar(3);
     this.flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.flash.scale.setScalar(10);
     this.group.add(this.flash);
