@@ -10,13 +10,21 @@ import type { GameConfig } from '../sim/game';
 import type { CarInput } from '../input/types';
 import { ByteReader, ByteWriter, readInput, writeInput } from '../sim/state';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 export const MAX_PLAYERS = 8;
+/** Car bodies to choose from; must match CAR_BODIES in render/cars.ts. Cosmetic only. */
+export const CAR_BODY_COUNT = 3;
+
+export function clampBody(body: unknown): number {
+  return typeof body === 'number' && Number.isInteger(body) && body >= 0 && body < CAR_BODY_COUNT ? body : 0;
+}
 
 export interface LobbyPlayer {
   slot: number;
   name: string;
   team: Team;
+  /** Index into CAR_BODIES. */
+  body: number;
 }
 
 export interface MatchSettings {
@@ -27,13 +35,14 @@ export interface MatchSettings {
 export const DEFAULT_MATCH_SETTINGS: MatchSettings = { matchSeconds: 300 };
 
 export type CtrlMsg =
-  | { t: 'hello'; name: string; version: number; dodgeDeadzone: number }
+  | { t: 'hello'; name: string; version: number; dodgeDeadzone: number; body: number }
   | { t: 'welcome'; slot: number }
   | { t: 'reject'; reason: string }
   /** Host is ready to receive the unreliable channel; the client creates it on receipt. */
   | { t: 'fastready' }
   | { t: 'lobby'; players: LobbyPlayer[]; settings: MatchSettings; inMatch: boolean }
   | { t: 'team'; team: Team }
+  | { t: 'body'; body: number }
   | { t: 'start'; config: GameConfig }
   | { t: 'end' };
 

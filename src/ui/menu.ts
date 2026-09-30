@@ -1,10 +1,11 @@
 import { ACTIONS, ACTION_LABELS, gamepadButtonName, keyName, type Action, type Captured, type InputManager } from '../input/input';
 import type { FrameInput } from '../input/types';
-import { CAMERA_DEFS, CONTROL_DEFS, DEFAULT_SETTINGS, getSetting, setSetting, type SettingDef, type Settings } from '../settings';
+import { CAR_BODIES } from '../render/cars';
+import { CAMERA_DEFS, CONTROL_DEFS, DEFAULT_SETTINGS, GRAPHICS_DEFS, getSetting, setSetting, type SettingDef, type Settings } from '../settings';
 import type { LobbyState } from '../net/session';
 import { buildLabel } from '../build';
 
-export type MenuScreen = 'main' | 'multiplayer' | 'lobby' | 'settings' | 'controls' | 'camera' | 'gameplay' | 'hidden';
+export type MenuScreen = 'main' | 'multiplayer' | 'lobby' | 'settings' | 'controls' | 'camera' | 'gameplay' | 'graphics' | 'garage' | 'hidden';
 type PanelId = Exclude<MenuScreen, 'hidden'>;
 
 /** What the menu is sitting on top of. Decides which main-menu buttons exist. */
@@ -80,6 +81,8 @@ export class Menu {
     this.buildControls();
     this.buildSliders('camera', 'Camera', CAMERA_DEFS, 'settings');
     this.buildSliders('gameplay', 'Gameplay', CONTROL_DEFS, 'settings');
+    this.buildSliders('graphics', 'Graphics', GRAPHICS_DEFS, 'settings');
+    this.buildGarage();
     // Build stamp, visible on every menu screen: quote it when reporting something.
     const version = el('div', 'build-stamp');
     version.textContent = buildLabel();
@@ -101,10 +104,13 @@ export class Menu {
     if (this.capturingCell) this.cancelCapture();
     this.screen = screen;
     this.root.hidden = screen === 'hidden';
+    // The Garage shows the car preview behind a see-through menu.
+    this.root.classList.toggle('garage', screen === 'garage');
     for (const [id, p] of Object.entries(this.panels) as [PanelId, Panel][]) p.el.hidden = id !== screen;
     if (screen === 'main') this.renderMain();
     if (screen === 'multiplayer') this.renderMultiplayer();
     if (screen === 'lobby') this.renderLobby();
+    if (screen === 'garage') this.renderGarage();
     if (screen !== 'hidden') this.setFocus(this.panels[screen].focus);
     else blurTextField();
     this.heldDir = null;
@@ -298,6 +304,7 @@ export class Menu {
       const lobbyBtn = this.addButton(p, this.mainButtons, 'Lobby', row++, 0, () => this.show('lobby'));
       if (!c.inMatch) lobbyBtn.classList.add('primary');
     }
+    this.addButton(p, this.mainButtons, 'Garage', row++, 0, () => this.show('garage'));
     this.addButton(p, this.mainButtons, 'Settings', row++, 0, () => this.show('settings'));
     if (c.kind === 'local') this.addButton(p, this.mainButtons, 'Quit to Menu', row++, 0, () => this.onQuit?.()).classList.add('danger');
     if (c.kind === 'host' || c.kind === 'client') this.addButton(p, this.mainButtons, 'Leave Room', row++, 0, () => this.onLeaveRoom?.()).classList.add('danger');
@@ -488,6 +495,41 @@ export class Menu {
   }
 
   // ---------------------------------------------------------------------------
+  // Garage: pick a car body (cosmetic; every body shares the same hitbox)
+  // ---------------------------------------------------------------------------
+
+  private garageButtons: HTMLButtonElement[] = [];
+  private garageBlurb!: HTMLElement;
+
+  private buildGarage(): void {
+    const p = this.addPanel('garage', 'main', 'Garage');
+    p.el.classList.add('garage-panel');
+    const row = el('div', 'menu-row');
+    p.el.appendChild(row);
+    this.garageButtons = CAR_BODIES.map((b, i) =>
+      this.addButton(p, row, b.name, 0, i, () => {
+        this.settings.car.body = i;
+        this.renderGarage();
+        this.onSettingsChanged?.();
+      }),
+    );
+    this.garageBlurb = el('p', 'menu-hint');
+    p.el.appendChild(this.garageBlurb);
+    const note = el('p', 'menu-hint');
+    note.textContent = 'Looks only: every car has the same hitbox and handling.';
+    p.el.appendChild(note);
+    const footer = el('div', 'menu-row');
+    p.el.appendChild(footer);
+    this.addButton(p, footer, 'Back', 1, 0, () => this.back());
+  }
+
+  private renderGarage(): void {
+    const chosen = this.settings.car.body;
+    this.garageButtons.forEach((b, i) => b.classList.toggle('primary', i === chosen));
+    this.garageBlurb.textContent = CAR_BODIES[chosen]?.blurb ?? '';
+  }
+
+  // ---------------------------------------------------------------------------
   // Settings
   // ---------------------------------------------------------------------------
 
@@ -496,7 +538,8 @@ export class Menu {
     this.addButton(p, p.el, 'Controls', 0, 0, () => this.show('controls'));
     this.addButton(p, p.el, 'Camera', 1, 0, () => this.show('camera'));
     this.addButton(p, p.el, 'Gameplay', 2, 0, () => this.show('gameplay'));
-    this.addButton(p, p.el, 'Back', 3, 0, () => this.back());
+    this.addButton(p, p.el, 'Graphics', 3, 0, () => this.show('graphics'));
+    this.addButton(p, p.el, 'Back', 4, 0, () => this.back());
   }
 
   private buildControls(): void {
@@ -614,7 +657,7 @@ export class Menu {
 
       const refresh = () => {
         const v = getSetting(this.settings, def);
-        val.textContent = `${v.toFixed(def.decimals)}${def.unit ?? ''}`;
+        val.textContent = def.labels ? (def.labels[Math.round(v)] ?? String(v)) : `${v.toFixed(def.decimals)}${def.unit ?? ''}`;
         fill.style.width = `${((v - def.min) / (def.max - def.min)) * 100}%`;
       };
       const adjust = (dir: 1 | -1) => {

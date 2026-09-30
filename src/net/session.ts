@@ -15,6 +15,8 @@ export interface CarRenderState {
   id: number;
   team: Team;
   name: string;
+  /** Index into CAR_BODIES. */
+  body: number;
   prev: BodyState;
   curr: BodyState;
   alpha: number;
@@ -72,7 +74,7 @@ export interface Session {
 }
 
 /** Shared: build the render state of a car from a live Car object in a game. */
-export function liveCarState(game: Game, id: number, alpha: number, name: string): CarRenderState | null {
+export function liveCarState(game: Game, id: number, alpha: number, name: string, body = 0): CarRenderState | null {
   const car = game.cars.get(id);
   const prev = game.prev.cars.get(id);
   const curr = game.curr.cars.get(id);
@@ -85,6 +87,7 @@ export function liveCarState(game: Game, id: number, alpha: number, name: string
     id,
     team: car.team,
     name,
+    body,
     prev,
     curr,
     alpha,
@@ -109,6 +112,8 @@ export class LocalSession implements Session {
   onLobbyChanged: (() => void) | null = null;
   onMatchStarted: (() => void) | null = null;
   onEnded: ((reason: string) => void) | null = null;
+  /** Chosen car body, set from the player's settings. */
+  body = 0;
   private accumulator = 0;
 
   constructor(readonly game: Game) {
@@ -134,7 +139,7 @@ export class LocalSession implements Session {
   }
 
   carRenderStates(): CarRenderState[] {
-    const s = liveCarState(this.game, 0, this.alpha, '');
+    const s = liveCarState(this.game, 0, this.alpha, '', this.body);
     return s ? [s] : [];
   }
 

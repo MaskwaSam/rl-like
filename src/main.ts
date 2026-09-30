@@ -89,6 +89,7 @@ async function main(): Promise<void> {
   const applySettings = () => {
     saveSettings(settings);
     followCam.applyProjection(renderer.camera);
+    renderer.setQuality(settings.graphics.quality);
     sound.setVolume(settings.audio.volume);
     const localCar = session?.game?.cars.get(session.localId);
     if (localCar) localCar.dodgeDeadzone = settings.controls.dodgeDeadzone;
@@ -96,6 +97,10 @@ async function main(): Promise<void> {
       session.hostDodgeDeadzone = settings.controls.dodgeDeadzone;
       session.game?.setDodgeDeadzone(0, settings.controls.dodgeDeadzone);
     }
+    // Car body: cosmetic, so it can change at any time; online it reaches everyone via the lobby.
+    if (session instanceof LocalSession) session.body = settings.car.body;
+    else if (session instanceof HostSession) session.setHostBody(settings.car.body);
+    else if (session instanceof ClientSession) session.setBody(settings.car.body);
   };
   applySettings();
   window.addEventListener('resize', () => followCam.applyProjection(renderer.camera));
@@ -179,7 +184,7 @@ async function main(): Promise<void> {
     menu.setMultiplayerStatus(`Joining ${code}…`, true);
     try {
       await iceReady;
-      const client = await ClientSession.create(code, name, settings.controls.dodgeDeadzone);
+      const client = await ClientSession.create(code, name, settings.controls.dodgeDeadzone, settings.car.body);
       attach(client);
       menu.setMultiplayerStatus('');
       menu.show('lobby');
@@ -343,6 +348,11 @@ async function main(): Promise<void> {
 
     // Networked sessions keep running behind the menu; free play pauses.
     session?.update(menu.open ? EMPTY_INPUT : fi.car, sessionDt(now), menu.open);
+
+    if (menu.screen === 'garage') {
+      const me = session?.lobby?.players.find((p) => p.slot === session!.localId);
+      renderer.renderGarage(settings.car.body, me?.team ?? 'blue', frameDt);
+    }
 
     const game = session?.game ?? null;
     const localCar = game?.cars.get(session!.localId) ?? null;

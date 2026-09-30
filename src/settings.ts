@@ -30,6 +30,14 @@ export interface Settings {
     /** Master volume 0–1. */
     volume: number;
   };
+  graphics: {
+    /** 0 Low, 1 Medium, 2 High. See GRAPHICS_DEFS. */
+    quality: number;
+  };
+  car: {
+    /** Index into CAR_BODIES (render/cars.ts). Chosen in the Garage. */
+    body: number;
+  };
 }
 
 /** Defaults follow the most common pro camera: FOV 110, distance 270, height 100, angle -3, stiffness 0.45. */
@@ -37,6 +45,8 @@ export const DEFAULT_SETTINGS: Settings = {
   camera: { fov: 110, distance: 270, height: 100, angle: -3, stiffness: 0.45 },
   controls: { steeringSensitivity: 1.0, aerialSensitivity: 1.0, deadzone: 0.2, dodgeDeadzone: 0.5 },
   audio: { volume: 0.6 },
+  graphics: { quality: 1 },
+  car: { body: 0 },
 };
 
 export type SettingSection = keyof Settings;
@@ -52,6 +62,8 @@ export interface SettingDef {
   step: number;
   unit?: string;
   decimals: number;
+  /** Names shown instead of the number, indexed by value (for stepped choices like quality). */
+  labels?: string[];
 }
 
 export const CAMERA_DEFS: SettingDef[] = [
@@ -162,6 +174,20 @@ export const CONTROL_DEFS: SettingDef[] = [
   },
 ];
 
+export const GRAPHICS_DEFS: SettingDef[] = [
+  {
+    section: 'graphics',
+    key: 'quality',
+    label: 'Graphics quality',
+    description: 'Low is the original lightweight look, for older laptops. Medium adds smooth edges and glowing lights. High adds real shadows.',
+    min: 0,
+    max: 2,
+    step: 1,
+    decimals: 0,
+    labels: ['Low', 'Medium', 'High'],
+  },
+];
+
 const STORAGE_KEY = 'rl-like.settings.v1';
 
 export function loadSettings(): Settings {
@@ -170,7 +196,7 @@ export function loadSettings(): Settings {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return s;
     const parsed = JSON.parse(raw) as Partial<Record<SettingSection, Record<string, number>>>;
-    for (const section of ['camera', 'controls', 'audio'] as SettingSection[]) {
+    for (const section of ['camera', 'controls', 'audio', 'graphics', 'car'] as SettingSection[]) {
       const target = s[section] as unknown as Record<string, number>;
       for (const [k, v] of Object.entries(parsed[section] ?? {})) {
         if (k in target && typeof v === 'number' && Number.isFinite(v)) target[k] = v;

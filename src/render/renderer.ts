@@ -1,23 +1,29 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ARENA, BALL, BOOST_PADS, CAR, GRAVITY, OCTANE, UU, curve } from '../sim/rl';
-import { HITBOX_HALF, HITBOX_OFFSET } from '../sim/car';
 import type { ArenaGeometry } from '../sim/arena';
 import type { BodyState, BoostPad } from '../sim/game';
 import type { Team } from '../sim/car';
 import type { CarRenderState } from '../net/session';
-import { BlobShadow, Explosion, Ribbon, glowTexture } from './effects';
+import { BlobShadow, Explosion, GLOW, Ribbon, glow, glowTexture } from './effects';
+import { TEAM_GLOW, TEAM_PAINT, buildCarMeshes, type CarMeshes } from './cars';
 
 const pA = new THREE.Vector3();
 const pB = new THREE.Vector3();
 const qA = new THREE.Quaternion();
 const qB = new THREE.Quaternion();
 
-const TEAM_PAINT: Record<Team, number> = { blue: 0x1f63d8, orange: 0xf07f1a };
+/** Linear HDR luminance above which the bloom pass picks a pixel up. See `glow` in effects. */
+const BLOOM_THRESHOLD = 2.0;
 
 /** One car's meshes: body group, steerable wheels, boost flame, optional nameplate. */
 interface CarVisual {
   group: THREE.Group;
   team: Team;
+  body: number;
   wheels: { pivot: THREE.Group; mesh: THREE.Object3D; radius: number; front: boolean; restY: number }[];
   flame: THREE.Mesh;
   flameMaterial: THREE.MeshBasicMaterial;
@@ -39,23 +45,33 @@ interface PadVisual {
 }
 
 /**
- * Deliberately cheap: no shadows, no post-processing, no antialiasing, device pixel ratio 1,
- * flat-shaded Lambert materials, static textures and two lights.
+ * PBR materials lit by a hemisphere, an overhead key light and a stadium environment map, tone
+ * mapped for HDR. `setQuality` scales the cost: Low renders straight to the canvas; Medium adds
+ * MSAA and bloom; High adds real shadows. Always at pixel ratio 1: on a Retina screen 1.25x and
+ * up cost several times more (MSAA on HDR targets is bandwidth-bound) for little visible gain.
  */
 export class Renderer {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly gl: THREE.WebGLRenderer;
   readonly ballMesh: THREE.Mesh;
+  private readonly container: HTMLElement;
+  private readonly key: THREE.DirectionalLight;
+  private composer: EffectComposer | null = null;
+  private renderPass: RenderPass | null = null;
+  private garage: Garage | null = null;
+  private quality = -1;
+  /** True when the key light casts shadows, so the fake blob shadows under cars are hidden. */
+  private realShadows = false;
   private readonly cars = new Map<number, CarVisual>();
   private pads: PadVisual[] = [];
   private bigOrbs!: THREE.InstancedMesh;
   private bigRings!: THREE.InstancedMesh;
   private smallRings!: THREE.InstancedMesh;
   private readonly padMatrix = new THREE.Matrix4();
-  private readonly padColorOn = new THREE.Color(0xffc46b);
+  private readonly padColorOn = glow(0xffc46b, 2.5);
   private readonly padColorOff = new THREE.Color(0x2f3d33);
-  private readonly ballTrail = new Ribbon(16, 0.42, 0xdfe8ff, 0.28, 0.7);
+  private readonly ballTrail = new Ribbon(16, 0.42, 0xdfe8ff, 0.28, 0.7, 2);
   private readonly ballGlow: THREE.Sprite;
   private readonly ballShadow = new BlobShadow(1.1, 9);
   private readonly explosions: Explosion[] = [];
@@ -69,24 +85,50 @@ export class Renderer {
   private prevPadCooldown: number[] = [];
 
   constructor(container: HTMLElement, arena: ArenaGeometry, pads: BoostPad[]) {
-    this.gl = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
+    this.container = container;
+    // Antialiasing comes from the composer's MSAA target, so the canvas itself never needs it.
+    this.gl = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
     this.gl.setPixelRatio(1);
     this.gl.setSize(container.clientWidth, container.clientHeight);
+    this.gl.toneMapping = THREE.NeutralToneMapping;
+    this.gl.shadowMap.type = THREE.PCFShadowMap;
     this.gl.shadowMap.enabled = false;
     container.appendChild(this.gl.domElement);
 
     this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 300);
     this.scene.background = new THREE.Color(0x05080f);
 
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.3);
-    sun.position.set(30, 70, 25);
-    this.scene.add(sun);
-    const fill = new THREE.DirectionalLight(0x9fc4ff, 0.4);
+    // Reflections: a simple night stadium baked once into a prefiltered environment map, so the
+    // car paint, glass and ball have floodlights to catch without any image files.
+    const pmrem = new THREE.PMREMGenerator(this.gl);
+    this.scene.environment = pmrem.fromScene(stadiumEnvironment(), 0.03).texture;
+    pmrem.dispose();
+
+    // Stadium lighting: sky/turf bounce, a high floodlight key tilted enough that a grounded car's
+    // shadow shows beside it (straight overhead, the car hides it) and a cool fill for shape.
+    // The ball casts no real shadow: its blob and ring stay straight below it, which is what
+    // players read to judge where it is.
+    this.scene.add(new THREE.HemisphereLight(0xc4d8ff, 0x2c4a30, 0.6));
+    this.key = new THREE.DirectionalLight(0xfff6e8, 1.5);
+    this.key.position.set(30, 85, 20);
+    this.scene.add(this.key, this.key.target);
+    const reach = Math.max(ARENA.extentX, ARENA.extentY + ARENA.goalDepth) + 2;
+    const sc = this.key.shadow.camera;
+    sc.left = -reach;
+    sc.right = reach;
+    sc.top = reach;
+    sc.bottom = -reach;
+    sc.near = 20;
+    sc.far = 140;
+    this.key.shadow.mapSize.set(2048, 2048);
+    this.key.shadow.bias = -0.0004;
+    this.key.shadow.normalBias = 0.03;
+    const fill = new THREE.DirectionalLight(0x9fc4ff, 0.35);
     fill.position.set(-40, 30, -50);
     this.scene.add(fill);
 
     this.buildSky();
+    this.buildFloodlights();
     this.buildArena(arena);
     this.buildPads(pads);
     this.ballMesh = this.buildBall();
@@ -119,8 +161,44 @@ export class Renderer {
     const w = container.clientWidth;
     const h = container.clientHeight;
     this.gl.setSize(w, h);
+    this.composer?.setPixelRatio(this.gl.getPixelRatio());
+    this.composer?.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+  }
+
+  /** 0 Low, 1 Medium, 2 High (see GRAPHICS_DEFS). Cheap to call every time settings change. */
+  setQuality(level: number): void {
+    const q = Math.max(0, Math.min(2, Math.round(level)));
+    if (q === this.quality) return;
+    this.quality = q;
+
+    const shadows = q >= 2;
+    if (shadows !== this.realShadows) {
+      this.realShadows = shadows;
+      this.gl.shadowMap.enabled = shadows;
+      this.key.castShadow = shadows;
+      // Materials compile shadow support in or out, so they need rebuilding after a switch.
+      this.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (m) for (const mat of Array.isArray(m) ? m : [m]) mat.needsUpdate = true;
+      });
+    }
+
+    this.composer?.dispose();
+    this.composer = null;
+    if (q >= 1) {
+      const composer = new EffectComposer(this.gl);
+      // MSAA on the scene target: smooth edges on geometry and the 1px arena lines alike.
+      composer.renderTarget1.samples = 4;
+      composer.renderTarget2.samples = 4;
+      this.renderPass = new RenderPass(this.scene, this.camera);
+      composer.addPass(this.renderPass);
+      composer.addPass(new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.35, BLOOM_THRESHOLD));
+      composer.addPass(new OutputPass());
+      this.composer = composer;
+    }
+    this.resize(this.container);
   }
 
   /** The Object3D the camera follows, once that car exists. */
@@ -134,12 +212,12 @@ export class Renderer {
     for (const s of states) {
       seen.add(s.id);
       let v = this.cars.get(s.id);
-      if (v && v.team !== s.team) {
+      if (v && (v.team !== s.team || v.body !== s.body)) {
         this.removeCar(s.id);
         v = undefined;
       }
       if (!v) {
-        v = this.buildCar(s.team);
+        v = this.buildCar(s.team, s.body);
         this.cars.set(s.id, v);
       }
       const showName = s.id !== localId && s.name.length > 0;
@@ -174,14 +252,14 @@ export class Renderer {
         w.pivot.position.y += (targetY - w.pivot.position.y) * Math.min(1, dt * 30);
       }
       v.flame.visible = s.boosting;
-      v.flameMaterial.color.setHex(s.supersonic ? 0xfff3d6 : 0xffa62b);
+      v.flameMaterial.color.setHex(s.supersonic ? 0xfff3d6 : 0xffa62b).multiplyScalar(GLOW);
       v.flame.scale.setScalar(s.supersonic ? 1.5 : 1);
       if (s.boosting) {
         v.flame.getWorldPosition(this.tmpV);
         v.trail.addPoint(this.tmpV);
       }
       v.trail.update(dt, this.camera.position);
-      v.shadow.update(v.group.position, true);
+      v.shadow.update(v.group.position, !this.realShadows);
     }
     for (const id of [...this.cars.keys()]) if (!seen.has(id)) this.removeCar(id);
   }
@@ -311,7 +389,8 @@ export class Renderer {
         this.explosions.splice(i, 1);
       }
     }
-    this.gl.render(this.scene, this.camera);
+    if (this.composer) this.composer.render(dt);
+    else this.gl.render(this.scene, this.camera);
   }
 
   // ---------------------------------------------------------------------------
@@ -324,8 +403,9 @@ export class Renderer {
     const floorW = arena.floorBox.hx * 2;
     const floorL = arena.floorBox.hz * 2;
     const floorGeo = new THREE.PlaneGeometry(floorW, floorL);
-    const floor = new THREE.Mesh(floorGeo, new THREE.MeshLambertMaterial({ map: makeFieldTexture(floorW, floorL) }));
+    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: makeFieldTexture(floorW, floorL), roughness: 0.82, metalness: 0 }));
     floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
     this.scene.add(floor);
 
     // Wall shell straight from the physics trimesh, opaque and single-sided: the normals point
@@ -344,11 +424,15 @@ export class Renderer {
     shell.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     shell.setIndex(new THREE.BufferAttribute(arena.indices, 1));
     shell.computeVertexNormals();
-    this.scene.add(new THREE.Mesh(shell, new THREE.MeshLambertMaterial({ map: makeWallTexture(), side: THREE.FrontSide })));
+    // Glossy glass: low roughness so the floodlights and environment slide across it.
+    // The texture also drives a faint emissive, as if the stands behind the glass were lit.
+    const wallTex = makeWallTexture();
+    // Shadows land on the floor only: the key light is overhead, so walls would rarely show one.
+    this.scene.add(new THREE.Mesh(shell, new THREE.MeshStandardMaterial({ map: wallTex, emissive: 0xffffff, emissiveMap: wallTex, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.15, side: THREE.FrontSide })));
     this.scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(shell, 20), new THREE.LineBasicMaterial({ color: 0x5f7fb5, transparent: true, opacity: 0.55 })));
 
-    // A light band along the walls at goal height, like the arena's glass line.
-    const band = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(ARENA.extentX * 2, ARENA.extentY * 2)), new THREE.LineBasicMaterial({ color: 0x8fb8ff, transparent: true, opacity: 0.35 }));
+    // A neon band along the walls at goal height, like the arena's glass line. Bright enough to bloom.
+    const band = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(ARENA.extentX * 2, ARENA.extentY * 2)), new THREE.LineBasicMaterial({ color: glow(0x8fb8ff, 3.5), transparent: true, opacity: 0.8 }));
     band.rotation.x = -Math.PI / 2;
     band.position.y = ARENA.goalHeight;
     this.scene.add(band);
@@ -376,14 +460,9 @@ export class Renderer {
     for (const positive of [true, false]) {
       const color = positive ? 0xff9a3c : 0x4aa3ff;
       const g = tintByZ(positive);
-      this.scene.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })));
-      this.scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 12), new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.55 })));
-      const mouth = new THREE.LineSegments(
-        new THREE.EdgesGeometry(new THREE.PlaneGeometry(ARENA.goalHalfWidth * 2, ARENA.goalHeight)),
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.8 }),
-      );
-      mouth.position.set(0, ARENA.goalHeight / 2, (positive ? 1 : -1) * ARENA.extentY);
-      this.scene.add(mouth);
+      this.scene.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25, roughness: 0.6, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false })));
+      this.scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 12), new THREE.LineBasicMaterial({ color: glow(color, 1.6), transparent: true, opacity: 0.6 })));
+      this.scene.add(goalFrame(color, positive ? 1 : -1));
     }
 
     // Ceiling outline only, so the camera never gets blocked.
@@ -402,7 +481,7 @@ export class Renderer {
     const bigs = pads.filter((p) => p.big).length;
     const smalls = pads.length - bigs;
     const ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, side: THREE.DoubleSide });
-    this.bigOrbs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.42, 1), new THREE.MeshBasicMaterial({ color: 0xffc24a }), bigs);
+    this.bigOrbs = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.42, 1), new THREE.MeshBasicMaterial({ color: glow(0xffc24a) }), bigs);
     this.bigRings = new THREE.InstancedMesh(new THREE.RingGeometry(1.35, 1.6, 32), ringMat, bigs);
     // Small pads are just a lit ring on the floor, as in RL; big pads add the floating orb.
     this.smallRings = new THREE.InstancedMesh(new THREE.RingGeometry(0.55, 0.9, 20), ringMat, smalls);
@@ -432,6 +511,41 @@ export class Renderer {
     });
     this.bigRings.instanceMatrix.needsUpdate = true;
     this.smallRings.instanceMatrix.needsUpdate = true;
+  }
+
+  /**
+   * Floodlight banks above the four corners, angled at the centre spot: a grid of lamps bright
+   * enough to bloom plus a soft halo. Purely visual; the lighting itself comes from `key`.
+   */
+  private buildFloodlights(): void {
+    const lampGeo = new THREE.BoxGeometry(0.9, 0.9, 0.2);
+    const lampMat = new THREE.MeshBasicMaterial({ color: glow(0xfff4dc, 6) });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a1f29, roughness: 0.6, metalness: 0.5 });
+    const halo = glowTexture();
+    const cols = 5;
+    const rows = 2;
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const bank = new THREE.Group();
+        bank.position.set(sx * (ARENA.extentX + 6), ARENA.height + 9, sz * (ARENA.extentY - 4));
+        bank.lookAt(0, 0, 0);
+        const frame = new THREE.Mesh(new THREE.BoxGeometry(cols * 1.1 + 0.4, rows * 1.1 + 0.4, 0.3), frameMat);
+        frame.position.z = -0.2;
+        bank.add(frame);
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const lamp = new THREE.Mesh(lampGeo, lampMat);
+            lamp.position.set((c - (cols - 1) / 2) * 1.1, (r - (rows - 1) / 2) * 1.1, 0);
+            bank.add(lamp);
+          }
+        }
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, color: 0xfff0d0, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+        sprite.scale.setScalar(16);
+        sprite.position.z = 0.5;
+        bank.add(sprite);
+        this.scene.add(bank);
+      }
+    }
   }
 
   /** Night sky: a dithered gradient dome instead of a flat colour, one draw call. */
@@ -476,149 +590,165 @@ export class Renderer {
   }
 
   // ---------------------------------------------------------------------------
-  // Car: a Fennec-style body on the Octane hitbox, with wheels at RL's positions
+  // Cars (bodies live in cars.ts) and the Garage preview
   // ---------------------------------------------------------------------------
 
-  /**
-   * The car: a boxy hot-hatch in the Fennec mould, built to the Octane hitbox it actually uses.
-   * The silhouette is one extruded side profile (short overhangs, steep windscreen, long flat
-   * roof, near-vertical tailgate) rather than a stack of boxes, so the shape reads correctly from
-   * every angle, with a bevel to catch the light on its edges. Everything is sized from
-   * HITBOX_HALF, so the visible car is exactly the shape the physics collides with.
-   */
-  private buildCar(team: Team): CarVisual {
-    const group = new THREE.Group();
-    const body = new THREE.Group();
-    body.position.copy(HITBOX_OFFSET);
-    group.add(body);
-
-    const hw = HITBOX_HALF.x; // 0.433 half width
-    const hh = HITBOX_HALF.y; // 0.193 half height
-    const hl = HITBOX_HALF.z; // 0.603 half length; the nose is at -z
-
-    const paint = new THREE.MeshLambertMaterial({ color: TEAM_PAINT[team] });
-    const trim = new THREE.MeshLambertMaterial({ color: 0x14181f });
-    const glass = new THREE.MeshLambertMaterial({ color: 0x0a1018 });
-    const chrome = new THREE.MeshLambertMaterial({ color: 0x9aa4b2 });
-    const headlight = new THREE.MeshBasicMaterial({ color: 0xfff4cf });
-    const taillight = new THREE.MeshBasicMaterial({ color: 0xff2e2e });
-
-    // Side profile, (z, y) with the nose at -z. Traced to read as a Fennec from the side:
-    // stubby nose, fast windscreen, flat roof running most of the length, blunt tail.
-    const p: [number, number][] = [
-      [-hl, -hh * 0.62],
-      [-hl, -hh * 0.02],
-      [-hl * 0.93, hh * 0.3],
-      [-hl * 0.46, hh * 0.4],
-      [-hl * 0.14, hh * 0.99],
-      [hl * 0.5, hh * 0.99],
-      [hl * 0.72, hh * 0.5],
-      [hl * 0.99, hh * 0.36],
-      [hl * 0.99, -hh * 0.62],
-    ];
-    const shape = new THREE.Shape();
-    shape.moveTo(p[0][0], p[0][1]);
-    for (let i = 1; i < p.length; i++) shape.lineTo(p[i][0], p[i][1]);
-    shape.closePath();
-    const bevel = 0.014;
-    const shell = new THREE.ExtrudeGeometry(shape, {
-      depth: hw * 2 - bevel * 2,
-      bevelEnabled: true,
-      bevelThickness: bevel,
-      bevelSize: bevel,
-      bevelSegments: 2,
-      curveSegments: 1,
-    });
-    // Extrusion runs along the shape's +Z; turn it so it runs across the car, and centre it.
-    shell.rotateY(-Math.PI / 2);
-    shell.translate(hw - bevel, 0, 0);
-    body.add(new THREE.Mesh(shell, paint));
-
-    const box = (mat: THREE.Material, sx: number, sy: number, sz: number, x: number, y: number, z: number) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
-      m.position.set(x, y, z);
-      body.add(m);
-      return m;
-    };
-
-    // Glasshouse: side windows sitting a hair proud of the flat flanks, plus screens front and back.
-    for (const side of [1, -1]) {
-      const win = box(glass, 0.012, hh * 0.42, hl * 0.6, side * (hw - 0.004), hh * 0.6, hl * 0.16);
-      win.rotation.x = 0;
-    }
-    const windscreen = box(glass, hw * 1.84, 0.014, hl * 0.42, 0, hh * 0.72, -hl * 0.31);
-    windscreen.rotation.x = -0.62; // rake back over the bonnet
-    const rearScreen = box(glass, hw * 1.84, 0.014, hl * 0.26, 0, hh * 0.74, hl * 0.61);
-    rearScreen.rotation.x = 0.72;
-
-    // Lower skirt and bumpers darken the bottom edge the way the real car's cladding does.
-    box(trim, hw * 2.02, hh * 0.3, hl * 1.98, 0, -hh * 0.78, 0);
-    box(trim, hw * 1.9, hh * 0.34, 0.05, 0, -hh * 0.3, -hl * 0.99); // front bumper
-    box(trim, hw * 1.9, hh * 0.34, 0.05, 0, -hh * 0.3, hl * 0.99); // rear bumper
-    box(chrome, hw * 1.2, hh * 0.16, 0.03, 0, -hh * 0.1, -hl * 1.0); // grille bar
-
-    // Lights.
-    for (const side of [1, -1]) {
-      box(headlight, hw * 0.44, hh * 0.16, 0.03, side * hw * 0.62, hh * 0.16, -hl * 0.955);
-      box(taillight, hw * 0.46, hh * 0.18, 0.03, side * hw * 0.6, hh * 0.18, hl * 0.99);
-    }
-
-    // Roof spoiler over the tailgate.
-    box(trim, hw * 1.7, hh * 0.1, hl * 0.12, 0, hh * 1.02, hl * 0.52);
-
-    // Wheels at RL's hardpoints and radii. Each pivot steers and rides the suspension; the holder
-    // inside it spins, so steering and roll never fight each other.
-    const wheelDefs = [
-      { x: OCTANE.frontWheelOffset.y, z: -OCTANE.frontWheelOffset.x, r: OCTANE.frontWheelRadius, front: true },
-      { x: -OCTANE.frontWheelOffset.y, z: -OCTANE.frontWheelOffset.x, r: OCTANE.frontWheelRadius, front: true },
-      { x: OCTANE.rearWheelOffset.y, z: -OCTANE.rearWheelOffset.x, r: OCTANE.rearWheelRadius, front: false },
-      { x: -OCTANE.rearWheelOffset.y, z: -OCTANE.rearWheelOffset.x, r: OCTANE.rearWheelRadius, front: false },
-    ];
-    const tyreMat = new THREE.MeshLambertMaterial({ color: 0x0d0f12 });
-    const rimMat = new THREE.MeshLambertMaterial({ color: 0xb9c2cf });
-    const wheels: CarVisual['wheels'] = [];
-    for (const d of wheelDefs) {
-      const pivot = new THREE.Group();
-      const restY = d.r - OCTANE.restZ;
-      pivot.position.set(d.x + Math.sign(d.x) * 0.035, restY, d.z);
-      const holder = new THREE.Group();
-      const width = 0.175;
-      const tyre = new THREE.CylinderGeometry(d.r, d.r, width, 16);
-      tyre.rotateZ(Math.PI / 2);
-      const tyreMesh = new THREE.Mesh(tyre, tyreMat);
-      const rim = new THREE.CylinderGeometry(d.r * 0.62, d.r * 0.62, width + 0.012, 12);
-      rim.rotateZ(Math.PI / 2);
-      tyreMesh.add(new THREE.Mesh(rim, rimMat));
-      // Spokes: a couple of thin bars so the wheel visibly turns.
-      for (let k = 0; k < 3; k++) {
-        const spoke = new THREE.Mesh(new THREE.BoxGeometry(width + 0.014, d.r * 1.1, 0.035), rimMat);
-        spoke.rotation.x = (k * Math.PI) / 3;
-        tyreMesh.add(spoke);
-      }
-      holder.add(tyreMesh);
-      pivot.add(holder);
-      group.add(pivot);
-      wheels.push({ pivot, mesh: holder, radius: d.r, front: d.front, restY });
-    }
-
-    const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xffa62b });
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.85, 8), flameMaterial);
-    flame.rotation.x = Math.PI / 2; // tip points to the rear
-    flame.position.set(0, -hh * 0.15, hl + 0.42);
-    flame.visible = false;
-    body.add(flame);
-
-    const trail = new Ribbon(10, 0.13, team === 'blue' ? 0x4f8cff : 0xff9030, 0.11, 0.55);
+  private buildCar(team: Team, body: number): CarVisual {
+    const m = buildCarMeshes(team, body);
+    const trail = new Ribbon(10, 0.13, team === 'blue' ? 0x4f8cff : 0xff9030, 0.11, 0.55, 3);
     const shadow = new BlobShadow(0.95, 6);
-    this.scene.add(group, trail.mesh, shadow.mesh);
-    return { group, team, wheels, flame, flameMaterial, nameplate: null, name: '', trail, shadow };
+    this.scene.add(m.group, trail.mesh, shadow.mesh);
+    return { ...m, team, body, nameplate: null, name: '', trail, shadow };
+  }
+
+  /**
+   * Garage: the chosen body turning slowly on a showroom turntable, drawn instead of the arena
+   * while the Garage menu is open. Its own small scene, sharing the environment map and the
+   * composer (so it gets the same glow and antialiasing as the game at the current quality).
+   */
+  renderGarage(body: number, team: Team, dt: number): void {
+    const g = (this.garage ??= buildGarage(this.scene.environment));
+    if (!g.car || g.body !== body || g.team !== team) {
+      if (g.car) g.scene.remove(g.car.group);
+      g.car = buildCarMeshes(team, body);
+      g.car.group.position.y = OCTANE.restZ;
+      g.scene.add(g.car.group);
+      g.ringMat.color.copy(glow(TEAM_GLOW[team], 2.5));
+      g.body = body;
+      g.team = team;
+    }
+    g.angle += dt * 0.45;
+    g.car.group.rotation.y = g.angle;
+    g.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+    g.camera.updateProjectionMatrix();
+    if (this.composer && this.renderPass) {
+      this.renderPass.scene = g.scene;
+      this.renderPass.camera = g.camera;
+      this.composer.render(dt);
+      this.renderPass.scene = this.scene;
+      this.renderPass.camera = this.camera;
+    } else this.gl.render(g.scene, g.camera);
   }
 
   private buildBall(): THREE.Mesh {
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(BALL.visualRadius, 24, 16), new THREE.MeshLambertMaterial({ map: makeBallTexture() }));
+    const ballTex = makeBallTexture();
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(BALL.visualRadius, 48, 32),
+      // A little self-lit, like RL's ball under stadium lights, so it stays easy to find.
+      new THREE.MeshPhysicalMaterial({ map: ballTex, emissive: 0xffffff, emissiveMap: ballTex, emissiveIntensity: 0.3, roughness: 0.42, metalness: 0.1, clearcoat: 0.5, clearcoatRoughness: 0.2 }),
+    );
     this.scene.add(mesh);
     return mesh;
   }
+}
+
+interface Garage {
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  ringMat: THREE.MeshBasicMaterial;
+  car: CarMeshes | null;
+  body: number;
+  team: Team;
+  angle: number;
+}
+
+/** Showroom for the Garage: dark studio, reflective turntable with a lit rim, soft key and rim lights. */
+function buildGarage(environment: THREE.Texture | null): Garage {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x070b14);
+  scene.environment = environment;
+  scene.add(new THREE.HemisphereLight(0xc4d8ff, 0x10141c, 0.7));
+  const key = new THREE.DirectionalLight(0xfff6e8, 2.2);
+  key.position.set(2, 4, 3);
+  const rim = new THREE.DirectionalLight(0x9fc4ff, 1.6);
+  rim.position.set(-3, 2, -4);
+  scene.add(key, rim);
+
+  const deck = new THREE.Mesh(new THREE.CircleGeometry(1.6, 64), new THREE.MeshStandardMaterial({ color: 0x151b26, roughness: 0.35, metalness: 0.4 }));
+  deck.rotation.x = -Math.PI / 2;
+  scene.add(deck);
+  const ringMat = new THREE.MeshBasicMaterial({ color: glow(TEAM_GLOW.blue, 2.5) });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.56, 1.62, 96), ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.002;
+  scene.add(ring);
+  const shadow = new BlobShadow(0.95, 6);
+  shadow.update(new THREE.Vector3(0, 0.1, 0), true);
+  scene.add(shadow.mesh);
+  // A soft overhead softbox, so the roof and bonnet catch a long highlight as the car turns.
+  const softbox = new THREE.Mesh(new THREE.PlaneGeometry(3, 1.2), new THREE.MeshBasicMaterial({ color: glow(0xffffff, 1.2) }));
+  softbox.rotation.x = Math.PI / 2;
+  softbox.position.y = 3.2;
+  scene.add(softbox);
+
+  // Low three-quarter view, aimed a little under the car so it sits above the menu panel.
+  const camera = new THREE.PerspectiveCamera(24, 1, 0.1, 50);
+  camera.position.set(0, 2.1, 6.0);
+  camera.lookAt(0, -0.45, 0);
+  // Start on a front three-quarter view (the nose is at -z, the camera at +z).
+  return { scene, camera, ringMat, car: null, body: -1, team: 'blue', angle: Math.PI - 0.7 };
+}
+
+/**
+ * What shiny surfaces reflect: a dome running from dark turf through a dimly lit ring of stands
+ * to night sky, four floodlight banks and an overhead strip. The lamps are kept only a little
+ * over BLOOM_THRESHOLD so a reflected light glints instead of flaring across the screen.
+ */
+function stadiumEnvironment(): THREE.Scene {
+  const env = new THREE.Scene();
+  const R = 50;
+  const dome = new THREE.SphereGeometry(R, 48, 24);
+  const pos = dome.attributes.position;
+  const sky = new THREE.Color(0x0b1224);
+  const stands = new THREE.Color(0x3a4460);
+  const turf = new THREE.Color(0x1d3a22);
+  const c = new THREE.Color();
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / R;
+    if (y >= 0) c.copy(stands).lerp(sky, Math.min(1, y * 2.5));
+    else c.copy(stands).lerp(turf, Math.min(1, -y * 4));
+    c.toArray(colors, i * 3);
+  }
+  dome.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  env.add(new THREE.Mesh(dome, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+
+  const lamp = new THREE.MeshBasicMaterial({ color: glow(0xfff4dc, 2.5) });
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const bank = new THREE.Mesh(new THREE.PlaneGeometry(14, 6), lamp);
+      bank.position.set(sx * 30, 28, sz * 36);
+      bank.lookAt(0, 0, 0);
+      env.add(bank);
+    }
+  }
+  const strip = new THREE.Mesh(new THREE.PlaneGeometry(30, 6), lamp);
+  strip.rotation.x = Math.PI / 2; // face straight down
+  strip.position.y = 45;
+  env.add(strip);
+  return env;
+}
+
+/**
+ * Neon frame around a goal mouth: two posts and a crossbar in the team colour, bright enough to
+ * bloom. Set half into the back wall at the edge of the opening, so it never narrows the goal.
+ */
+function goalFrame(color: number, side: 1 | -1): THREE.Group {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: glow(color, 3) });
+  const t = 0.3; // bar thickness
+  const w = ARENA.goalHalfWidth;
+  const h = ARENA.goalHeight;
+  for (const s of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(t, h + t, t), mat);
+    post.position.set(s * (w + t / 2), (h + t) / 2, 0);
+    group.add(post);
+  }
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(w * 2 + t * 2, t, t), mat);
+  bar.position.set(0, h + t / 2, 0);
+  group.add(bar);
+  group.position.z = side * ARENA.extentY;
+  return group;
 }
 
 function applyInterpolated(obj: THREE.Object3D, a: BodyState, b: BodyState, alpha: number): void {
@@ -675,8 +805,30 @@ function makeFieldTexture(fieldW: number, fieldL: number): THREE.Texture {
   ctx.fillRect(0, 0, W, Hpx);
   const stripeM = 6.4;
   for (let z = -ARENA.extentY; z < ARENA.extentY; z += stripeM * 2) {
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillStyle = 'rgba(255,255,255,0.075)';
     ctx.fillRect(0, zToPx(z + stripeM), W, stripeM * sz);
+  }
+  // Team halves, faintly tinted. The floor plane is laid flat with its top edge at world -z (the
+  // blue goal), so the top half of the canvas is blue's end; fading toward the half line.
+  for (const [y0, y1, rgb] of [
+    [0, Hpx / 2, '60,120,255'],
+    [Hpx, Hpx / 2, '255,140,40'],
+  ] as const) {
+    const g = ctx.createLinearGradient(0, y0, 0, y1);
+    g.addColorStop(0, `rgba(${rgb},0.16)`);
+    g.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, Math.min(y0, y1), W, Hpx / 2);
+  }
+  // Fine grain so the turf does not look like flat paint up close.
+  let seed = 11;
+  for (let i = 0; i < 60000; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const x = seed % W;
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const y = seed % Hpx;
+    ctx.fillStyle = i & 1 ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.05)';
+    ctx.fillRect(x, y, 2, 2);
   }
   // Goal areas darker.
   ctx.fillStyle = '#17332a';

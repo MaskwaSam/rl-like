@@ -10,7 +10,7 @@ import { Game, type GameConfig } from '../sim/game';
 import { TICK_DT } from '../sim/rl';
 import { ByteReader, quantizeInput } from '../sim/state';
 import type { CarInput } from '../input/types';
-import { DEFAULT_MATCH_SETTINGS, MAX_PLAYERS, PROTOCOL_VERSION, Packet, decodeInputs, encodePong, encodeSnapshot, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
+import { DEFAULT_MATCH_SETTINGS, MAX_PLAYERS, PROTOCOL_VERSION, Packet, clampBody, decodeInputs, encodePong, encodeSnapshot, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
 import { acceptConnections, hostRoom, type Link } from './transport';
 import { liveCarState, type CarRenderState, type LobbyState, type Session } from './session';
 
@@ -25,6 +25,7 @@ interface Client {
   slot: number;
   name: string;
   team: Team;
+  body: number;
   link: Link;
   /** Inputs by tick, waiting to be applied. */
   inputs: Map<number, CarInput>;
@@ -46,6 +47,7 @@ export class HostSession implements Session {
   readonly code: string;
   hostName: string;
   hostTeam: Team = 'blue';
+  hostBody = 0;
   hostDodgeDeadzone = 0.5;
   settings: MatchSettings = { ...DEFAULT_MATCH_SETTINGS };
   private readonly clients = new Map<number, Client>();
@@ -98,8 +100,8 @@ export class HostSession implements Session {
   }
 
   private players(): LobbyPlayer[] {
-    const list: LobbyPlayer[] = [{ slot: 0, name: this.hostName, team: this.hostTeam }];
-    for (const c of [...this.clients.values()].sort((a, b) => a.slot - b.slot)) list.push({ slot: c.slot, name: c.name, team: c.team });
+    const list: LobbyPlayer[] = [{ slot: 0, name: this.hostName, team: this.hostTeam, body: this.hostBody }];
+    for (const c of [...this.clients.values()].sort((a, b) => a.slot - b.slot)) list.push({ slot: c.slot, name: c.name, team: c.team, body: c.body });
     return list;
   }
 
@@ -127,6 +129,7 @@ export class HostSession implements Session {
           slot,
           name: sanitizeName(msg.name) || `Player ${slot + 1}`,
           team: this.balancedTeam(),
+          body: clampBody(msg.body),
           link,
           inputs: new Map(),
           lastInputTick: -1,
@@ -165,6 +168,10 @@ export class HostSession implements Session {
           if (this.game) this.game.addCar(client.slot, client.team); // re-creates the car on the new team
           this.broadcastLobby();
         }
+        break;
+      case 'body':
+        client.body = clampBody(msg.body);
+        this.broadcastLobby();
         break;
       default:
         break;
@@ -211,6 +218,13 @@ export class HostSession implements Session {
   setHostTeam(team: Team): void {
     this.hostTeam = team;
     if (this.game) this.game.addCar(0, team);
+    this.broadcastLobby();
+  }
+
+  /** Host UI: own car body. Cosmetic, so it can change at any time, even mid-match. */
+  setHostBody(body: number): void {
+    if (body === this.hostBody) return;
+    this.hostBody = clampBody(body);
     this.broadcastLobby();
   }
 
@@ -310,12 +324,13 @@ export class HostSession implements Session {
   carRenderStates(): CarRenderState[] {
     const game = this.game;
     if (!game) return [];
-    const names = new Map<number, string>();
-    names.set(0, this.hostName);
-    for (const c of this.clients.values()) names.set(c.slot, c.name);
+    const who = new Map<number, { name: string; body: number }>();
+    who.set(0, { name: this.hostName, body: this.hostBody });
+    for (const c of this.clients.values()) who.set(c.slot, { name: c.name, body: c.body });
     const out: CarRenderState[] = [];
     for (const id of game.cars.keys()) {
-      const s = liveCarState(game, id, this.alpha, names.get(id) ?? '');
+      const w = who.get(id);
+      const s = liveCarState(game, id, this.alpha, w?.name ?? '', w?.body ?? 0);
       if (s) out.push(s);
     }
     return out;
