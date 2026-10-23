@@ -1,0 +1,146 @@
+/* Daylight arena presentation. Existing controls and focus/navigation remain code-native. */
+:root { --panel: rgba(12, 22, 33, .93); --muted: #b9c6d4; --focus: #b9e3ff; --accent: #e7ae61; }
+html, body { font-family: 'Avenir Next Condensed', 'Arial Narrow', system-ui, sans-serif; }
+.menu { padding: 28px; box-sizing: border-box; background: rgba(6, 16, 27, .36); }
+.menu::before { display: none; }
+.menu.main-screen { justify-content: flex-start; background: linear-gradient(90deg, rgba(4, 14, 24, .56), rgba(4, 14, 24, .05) 58%, transparent); }
+.menu-panel { border-radius: 3px; border-color: rgba(217, 236, 248, .2); box-shadow: 0 18px 65px #06121b55; }
+.menu-panel.main-panel { min-width: 0; width: 310px; padding: 0 8px; border: 0; background: none; box-shadow: none; backdrop-filter: none; gap: 6px; }
+.main-panel .menu-title { font-size: 42px; font-style: italic; font-weight: 600; letter-spacing: 3px; color: #fff; text-shadow: 0 2px 8px #10223180; white-space: nowrap; }
+.main-panel .menu-subtitle { font-size: 12px; letter-spacing: 1.5px; color: #edf4fb; margin-bottom: 20px; }
+.main-panel .menu-stack { gap: 6px; }
+.menu-button { border-radius: 2px; background: rgba(10, 21, 32, .86); border-color: rgba(203, 221, 236, .18); }
+.menu-button.primary { color: #1d3b51; background: linear-gradient(#ecf7ff, #a7d4f4); border-color: #e2f4ff; }
+.menu-button:hover { border-color: #b9e3ff; }
+.menu-button.primary:hover { filter: brightness(1.06); }
+.main-panel .menu-button { padding: 6px 15px; min-height: 42px; font-size: 23px; text-transform: uppercase; font-weight: 600; border: 0; clip-path: polygon(1.5% 0, 100% 0, 96% 100%, 0 100%); }
+.main-panel .menu-button.focused { outline: 0; box-shadow: inset 4px 0 #eaf6ff; background: linear-gradient(#ecf7ff, #a7d4f4); color: #1d3b51; }
+.focused { outline-color: #c9eaff; box-shadow: 0 0 0 4px #c9eaff15; }
+.main-panel .menu-hint { margin-top: 24px; font-size: 12px; max-width: 290px; color: #edf3fb; line-height: 1.5; text-shadow: 0 1px 5px #000; }
+.menu-hint kbd, .menu-hint .btn-glyph { border-radius: 2px; }
+.build-stamp { color: #e0eaf0; background: #091a29b3; padding: 5px 8px; border-radius: 2px; }
+.menu.garage { padding-bottom: 4vh; }
+.garage-panel { background: rgba(8, 20, 31, .92); }
+.field-row.focused, .slider-row.focused { border-color: #b9e3ff80; background: #b9e3ff0c; }
+.menu-input:focus { border-color: #b9e3ff; box-shadow: 0 0 0 3px #b9e3ff20; }
+#score { top: 0; display: flex; align-items: center; gap: 0; background: #10202ed9; font-size: 32px; font-weight: 500; }
+#score .blue, #score .orange { color: white; padding: 4px 20px; min-width: 30px; text-align: center; }
+#score .blue { background: #285dce; }
+#score .orange { background: #c97d36; }
+.score-label { font-size: 12px; letter-spacing: 2px; padding: 0 18px; }
+#clock { top: 49px; padding: 3px 15px; background: #10202ecc; font-size: 19px; font-weight: 500; }
+#hud.freeplay #score, #hud.freeplay #clock { display: none; }
+#bottomleft { left: 30px; bottom: 23px; gap: 4px; max-width: 270px; }
+#camMode { padding: 0; border: 0; background: none; border-radius: 0; font-size: 25px; font-weight: 500; }
+#camMode.on { color: #f69c62; }
+#camMode::before { content: '●'; font-size: 15px; margin-right: 7px; vertical-align: 2px; }
+#controller { font-size: 11px; opacity: .85; }
+#controller .warn { color: #dce6ef; }
+#bottomright { right: 35px; bottom: 23px; gap: 12px; }
+#boostGauge { width: 148px; height: 148px; border-radius: 50%; background: radial-gradient(circle, #213652bb 25%, #203a5833 55%, transparent 70%); }
+#boostGauge svg { transform: rotate(-92deg); }
+#boostGauge .track, #boostGauge .fill { stroke-width: 9; stroke-linecap: butt; }
+#boostGauge .track { stroke: #eaf3ff66; }
+#boostGauge .fill { stroke: #efb858; }
+#boostValue { font-size: 48px; font-weight: 300; color: #f8fbff; text-shadow: 0 0 6px #ffffff80; }
+#boostLabel { bottom: 29px; font-size: 10px; }
+#speed { min-width: 65px; margin-bottom: 12px; }
+#speed .value { font-size: 24px; font-weight: 500; }
+#speed .unit { font-size: 10px; }
+#playHints { display: none; position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); padding: 7px 12px; background: #14263abf; white-space: nowrap; font-size: 12px; letter-spacing: .6px; }
+#hud.freeplay #playHints { display: block; }
+#playHints kbd { font-family: inherit; background: #edf4fa; color: #233448; border-radius: 2px; padding: 0 4px; margin-left: 12px; text-shadow: none; }
+@media (max-width: 800px) {
+  .menu { padding: 20px; }
+  .menu-panel { min-width: 0; width: min(100%, 560px); padding: 22px; box-sizing: border-box; }
+  .menu-panel.wide { min-width: 0; width: 100%; max-width: 680px; }
+  .menu-panel.main-panel { width: 285px; }
+  .menu-panel.garage-panel { min-width: 0; }
+  .slider-row { grid-template-columns: minmax(100px, 1fr) 30px 66px 30px; gap: 6px; padding: 7px 0; }
+  .slider-bar { display: none; }
+  .bind-row { grid-template-columns: minmax(90px, 1fr) minmax(60px, 1fr) minmax(65px, 1fr); font-size: 12px; }
+  .bind-cell { padding: 8px 4px; font-size: 12px; }
+  #playHints { bottom: 23px; font-size: 10px; }
+  #bottomleft { left: 16px; bottom: 15px; max-width: 180px; }
+  #bottomright { right: 15px; bottom: 12px; }
+  #boostGauge { width: 110px; height: 110px; }
+  #boostValue { font-size: 38px; }
+  #boostLabel { bottom: 19px; }
+}
+@media (max-width: 560px) {
+  .main-panel .menu-title { font-size: 36px; }
+  .menu-panel.main-panel { width: 260px; }
+  .menu-panel { max-height: calc(100dvh - 50px); overflow: auto; }
+  .menu { background-color: #04122066; }
+  .build-stamp { font-size: 9px; right: 8px; bottom: 6px; }
+  .lobby-teams { gap: 6px; }
+  .field-row { flex-direction: column; align-items: stretch; gap: 4px; }
+  #controller { display: none; }
+  #camMode { font-size: 18px; }
+  #playHints { bottom: 120px; }
+  #speed { display: none; }
+}
+@media (max-height: 580px) and (min-width: 561px) {
+  .main-panel .menu-title { font-size: 34px; }
+  .main-panel .menu-subtitle { margin-bottom: 6px; }
+  .main-panel .menu-button { min-height: 34px; font-size: 20px; padding: 4px 15px; }
+  .main-panel .menu-hint { margin-top: 10px; }
+  .menu-panel:not(.main-panel) { max-height: calc(100dvh - 70px); overflow: auto; }
+}
+
+/* Private rooms keep the invite readable across desktop and phone layouts. */
+.multiplayer-panel { max-height: calc(100dvh - 56px); overflow-y: auto; box-sizing: border-box; }
+.multiplayer-section { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-top: 1px solid #d9ecf833; }
+.multiplayer-section[hidden] { display: none; }
+.multiplayer-heading { margin: 0; font-size: 17px; font-weight: 600; }
+.server-options-toggle { display: flex; align-items: center; gap: 12px; }
+.server-toggle-state { margin-left: auto; color: var(--muted); font-size: 13px; }
+.server-toggle-track { flex: 0 0 38px; height: 22px; border-radius: 12px; background: #283b4b; border: 1px solid #b9e3ff66; }
+.server-toggle-track::after { content: ''; display: block; width: 16px; height: 16px; margin: 3px; border-radius: 50%; background: #edf4fb; }
+.server-options-toggle[aria-checked="true"] .server-toggle-track { background: #447ca0; }
+.server-options-toggle[aria-checked="true"] .server-toggle-track::after { transform: translateX(16px); }
+.browser-section .menu-hint { margin: 0; }
+.server-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.server-modes .menu-button { min-width: 0; padding: 10px 6px; }
+.room-invite { padding: 20px 16px; border: 1px solid #b9e3ff66; background: #a7d4f410; text-align: center; }
+.room-code-label { font-size: 12px; letter-spacing: 3px; color: var(--muted); }
+.room-join-code { margin: 8px 0; font-family: ui-monospace, 'SFMono-Regular', monospace; font-size: clamp(32px, 7vw, 64px); font-weight: 800; letter-spacing: .08em; color: #f0f8ff; user-select: text; overflow-wrap: anywhere; line-height: 1.15; }
+.room-expiry { color: var(--muted); font-size: 12px; }
+.room-share-actions { justify-content: center; margin-top: 16px; }
+.room-share-notice { min-height: 20px; }
+.room-owner-actions { padding-top: 10px; border-top: 1px solid #d9ecf833; }
+.clipboard-fallback { position: fixed; left: -9999px; top: 0; }
+@media (max-width: 560px) {
+  .room-invite { padding: 16px 8px; }
+  .room-join-code { font-size: clamp(24px, 8vw, 42px); letter-spacing: .025em; }
+  .room-share-actions, .room-owner-actions { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .room-share-actions .menu-button, .room-owner-actions .menu-button { width: 100%; min-height: 44px; }
+  .lobby-team-title { font-size: 14px; }
+  .lobby-player { overflow-wrap: anywhere; }
+  .server-modes .menu-button { min-height: 44px; }
+}
+.multiplayer-panel, .lobby-panel { max-height: calc(100dvh - 80px); overflow-y: auto; }
+@media (max-width: 560px) {
+  .multiplayer-panel, .lobby-panel { max-height: calc(100dvh - 50px); }
+  .lobby-team { min-width: 0; padding: 10px 6px; }
+  .lobby-player { padding: 6px 4px; }
+}
+
+/* Arena selection leaves the live 3D overview visible beside the controls. */
+.menu.arena-screen { justify-content: flex-start; background: linear-gradient(90deg, #04122055, transparent 65%); }
+.menu-panel.arena-panel { min-width: 0; width: 340px; max-width: 100%; max-height: calc(100dvh - 80px); overflow-y: auto; box-sizing: border-box; padding: 24px; background: #08141fe0; gap: 14px; }
+.arena-selection-hint { margin: 0; }
+.arena-choice { display: flex; flex-direction: column; gap: 7px; width: 100%; padding: 15px; }
+.arena-choice-name { font-size: 20px; line-height: 1.1; }
+.arena-choice-description { font-size: 13px; font-weight: 400; line-height: 1.4; }
+.arena-choice-selected { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+.arena-choice-selected[hidden] { display: none; }
+.arena-choice:disabled { opacity: .8; }
+.lobby-arena .lobby-info { justify-content: flex-start; }
+@media (max-width: 560px) {
+  .menu.arena-screen { align-items: flex-end; padding: 16px 16px 28px; background: none; }
+  .menu-panel.arena-panel { width: 100%; max-height: min(70dvh, calc(100dvh - 50px)); padding: 18px; gap: 10px; }
+  .arena-choices { gap: 8px; }
+  .arena-choice { min-height: 44px; padding: 11px 14px; gap: 5px; }
+  .arena-choice-name { font-size: 18px; }
+}

@@ -1,0 +1,8 @@
+node_modules/
+.qa-build/
+dist/
+.DS_Store
+*.log
+.vite/
+.server-build/
+.env*

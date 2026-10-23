@@ -1,0 +1,13 @@
+services:
+  car-soccer:
+    build: .
+    image: car-soccer
+    container_name: car-soccer
+    restart: unless-stopped
+    ports:
+      # Point your HTTPS reverse proxy at this port. Override with CAR_SOCCER_PORT=... if taken.
+      - "${CAR_SOCCER_PORT:-8765}:80"
+    volumes:
+      # Relay (TURN) credentials, read by players' browsers at startup. Mounted rather than
+      # baked in, so editing public/turn.json takes effect without a rebuild.
+      - ./public/turn.json:/usr/share/nginx/html/turn.json:ro

@@ -1,0 +1,37 @@
+# Review-only replacement for the existing car-soccer service. Never run this against SPN100
+# before deployment approval, password-file setup, current storage verification and staging QA.
+services:
+  car-soccer:
+    image: car-soccer-private:${CAR_RELEASE:?Set an immutable release tag}
+    container_name: car-soccer
+    user: '101:101'
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cpus: 1.0
+    mem_limit: 512m
+    pids_limit: 64
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      CAR_ORIGIN: https://car.spatterson.ca
+      CAR_BIND: 0.0.0.0
+      PORT: '8080'
+      CAR_PASSWORD_HASH_FILE: /run/secrets/game-password-hash
+    volumes:
+      - ${CAR_PASSWORD_HASH_PATH:?Set a reviewed private hash-file path}:/run/secrets/game-password-hash:ro
+    tmpfs:
+      - /tmp:size=16m,noexec,nosuid,nodev
+    networks: [car_soccer_edge]
+    logging:
+      driver: json-file
+      options: {max-size: '10m', max-file: '3'}
+    healthcheck:
+      test: [CMD, node, --input-type=commonjs, -e, "require('node:http').get({hostname:'127.0.0.1',port:8080,path:'/healthz',headers:{Host:'car.spatterson.ca'}},r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # No host ports, Docker socket or application/student-data mounts.
+networks:
+  car_soccer_edge:
+    external: true

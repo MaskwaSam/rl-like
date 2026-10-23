@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+.server-build
+.qa-build
+.env*
+*.log
+.DS_Store
+.claude
+.github

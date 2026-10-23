@@ -1,0 +1,10 @@
+{
+  "_readme": "Relay (TURN) servers for multiplayer, from the Metered dashboard (TURN Server -> Show ICE Servers Array). These are credential-scoped: they only allow relaying traffic against this account's quota, never account access, which is why they belong in the client. Regenerate them in the dashboard if the quota is ever abused. Check the result in game under Multiplayer -> Test connection.",
+  "iceServers": [
+    { "urls": "stun:stun.relay.metered.ca:80" },
+    { "urls": "turn:global.relay.metered.ca:80", "username": "c238956c300ab46bfb7fa324", "credential": "3q+GrGpse9t5Ek4C" },
+    { "urls": "turn:global.relay.metered.ca:80?transport=tcp", "username": "c238956c300ab46bfb7fa324", "credential": "3q+GrGpse9t5Ek4C" },
+    { "urls": "turn:global.relay.metered.ca:443", "username": "c238956c300ab46bfb7fa324", "credential": "3q+GrGpse9t5Ek4C" },
+    { "urls": "turns:global.relay.metered.ca:443?transport=tcp", "username": "c238956c300ab46bfb7fa324", "credential": "3q+GrGpse9t5Ek4C" }
+  ]
+}
