@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 const mock = fileURLToPath(new URL('./mock-transport.ts', import.meta.url));
 const suite = process.argv[2] ?? 'headless';
-if (!['headless', 'modes'].includes(suite)) throw new Error('Choose headless or modes');
+if (!['headless', 'modes', 'sessions'].includes(suite)) throw new Error('Choose headless, modes or sessions');
 await build({
   configFile: false,
   plugins: [{

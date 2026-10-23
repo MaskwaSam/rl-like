@@ -88,6 +88,8 @@ export interface GameState {
   cars: { id: number; team: Team; state: CarState }[];
 }
 
+export type GameMetaState = Omit<GameState, 'tick' | 'ball' | 'cars'>;
+
 export function emptyState(): BodyState {
   return { px: 0, py: 0, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 };
 }
@@ -660,6 +662,18 @@ export class Game {
     for (const id of [...this.cars.keys()]) if (!seen.has(id)) this.removeCar(id);
     this.capture(this.curr);
     this.copySnapshot(this.curr, this.prev);
+  }
+
+  /** Copy prediction metadata at this tick, independently of the mutable simulation. */
+  captureMetaState(): GameMetaState {
+    return {
+      phase: this.phase, countdown: this.countdown, goalPause: this.goalPause,
+      timeRemaining: this.timeRemaining, overtimeElapsed: this.overtimeElapsed, overtime: this.overtime,
+      score: { ...this.score }, lastGoal: this.lastGoal, lastGoalScorer: this.lastGoalScorer,
+      lastTouch: this.lastTouch, lastGoalSpeed: this.lastGoalSpeed, rngState: this.rng.state,
+      spawnOrder: this.spawnOrder.slice(), spawnCursor: this.spawnCursor, currentSpawn: this.currentSpawn,
+      pads: this.pads.map((pad) => pad.cooldown),
+    };
   }
 
   /** Everything except the rigid bodies and the tick: clock, phase, score, pads, RNG. Used when the physics already agrees. */

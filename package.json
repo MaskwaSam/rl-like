@@ -14,6 +14,8 @@
     "password:hash": "node server/password.mjs",
     "test:headless": "node qa/run-headless.mjs headless",
     "test:modes": "node qa/run-headless.mjs modes",
+    "test:sessions": "node qa/run-headless.mjs sessions",
+    "test:transport": "node qa/transport-regression.mjs",
     "test:private": "node qa/run-private.mjs"
   },
   "dependencies": {

@@ -210,6 +210,20 @@ function peerIdForCode(code: string): string {
   return ID_PREFIX + normalizeCode(code);
 }
 
+/** Local queue/submission counters, not delivery or latency measurements. */
+export interface TrafficDiagnostics {
+  fastOpen: boolean;
+  fastBufferedBytes: number;
+  reliableBufferedBytes: number;
+  /** PeerJS's pending message count, separate from browser buffered bytes. */
+  reliableQueuedMessages: number;
+  fastSubmitted: number;
+  fallbackSubmitted: number;
+  droppedBackpressure: number;
+  droppedUnavailable: number;
+  sendErrors: number;
+}
+
 /** One connection to a remote peer: a reliable JSON channel and (once set up) a fast binary one. */
 export class Link {
   onCtrl: ((msg: CtrlMsg) => void) | null = null;
@@ -217,6 +231,11 @@ export class Link {
   onClose: (() => void) | null = null;
   closed = false;
   private fast: RTCDataChannel | null = null;
+  private fastSubmitted = 0;
+  private fallbackSubmitted = 0;
+  private droppedBackpressure = 0;
+  private droppedUnavailable = 0;
+  private sendErrors = 0;
 
   constructor(
     readonly conn: DataConnection,
@@ -265,7 +284,27 @@ export class Link {
   }
 
   get fastOpen(): boolean {
-    return this.fast !== null && this.fast.readyState === 'open';
+    return !this.closed && this.fast !== null && this.fast.readyState === 'open';
+  }
+
+  private get reliableQueuedMessages(): number {
+    // Raw PeerJS 1.5 connections use BufferedConnection; its base DataConnection type
+    // omits this getter. Other implementations may have no user-space queue.
+    return (this.conn as DataConnection & { readonly bufferSize?: number }).bufferSize ?? 0;
+  }
+
+  get trafficDiagnostics(): TrafficDiagnostics {
+    return {
+      fastOpen: this.fastOpen,
+      fastBufferedBytes: this.fast?.bufferedAmount ?? 0,
+      reliableBufferedBytes: this.conn.dataChannel?.bufferedAmount ?? 0,
+      reliableQueuedMessages: this.reliableQueuedMessages,
+      fastSubmitted: this.fastSubmitted,
+      fallbackSubmitted: this.fallbackSubmitted,
+      droppedBackpressure: this.droppedBackpressure,
+      droppedUnavailable: this.droppedUnavailable,
+      sendErrors: this.sendErrors,
+    };
   }
 
   private createFastChannel(): void {
@@ -303,23 +342,43 @@ export class Link {
   }
 
   sendFast(buf: ArrayBuffer): void {
-    if (this.closed) return;
-    if (this.fast && this.fast.readyState === 'open') {
-      // Do not queue behind a stalled link: game packets are only useful fresh.
-      if (this.fast.bufferedAmount > 64 * 1024) return;
+    if (this.closed) {
+      this.droppedUnavailable++;
+      return;
+    }
+    const fast = this.fast;
+    if (fast && fast.readyState === 'open') {
+      // Admit at most one packet when the browser queue is empty. Never move
+      // congestion onto the reliable channel: these packets are only useful fresh.
+      if (fast.bufferedAmount > 0) {
+        this.droppedBackpressure++;
+        return;
+      }
       try {
-        this.fast.send(buf);
+        fast.send(buf);
+        this.fastSubmitted++;
         return;
       } catch {
-        /* fall through */
+        this.sendErrors++;
+        // A channel can close between checking readyState and send; try fallback.
       }
     }
-    if (this.conn.open) {
-      try {
-        this.conn.send(buf);
-      } catch {
-        /* dropped */
-      }
+    const reliable = this.conn.dataChannel;
+    if (!this.conn.open || !reliable || reliable.readyState !== 'open') {
+      this.droppedUnavailable++;
+      return;
+    }
+    // PeerJS has a separate message queue beyond RTCDataChannel.bufferedAmount.
+    // Wait for both queues to drain; controls keep their existing reliable path.
+    if (reliable.bufferedAmount > 0 || this.reliableQueuedMessages > 0) {
+      this.droppedBackpressure++;
+      return;
+    }
+    try {
+      this.conn.send(buf);
+      this.fallbackSubmitted++;
+    } catch {
+      this.sendErrors++;
     }
   }
 

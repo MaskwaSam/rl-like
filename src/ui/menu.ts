@@ -386,7 +386,7 @@ export class Menu {
     const p = this.addPanel('multiplayer', 'main', 'Multiplayer');
     p.el.classList.add('multiplayer-panel');
     const hint = el('p', 'menu-hint');
-    hint.textContent = 'Host a room in your browser, or join with a friend’s room code.';
+    hint.textContent = 'For LAN play, host a room and share the code with friends on the same network.';
     p.el.appendChild(hint);
 
     const nameRow = el('div', 'field-row');
@@ -407,12 +407,12 @@ export class Menu {
 
     const browserSection = el('div', 'multiplayer-section browser-section');
     const browserHeading = el('h3', 'multiplayer-heading');
-    browserHeading.textContent = 'Browser-hosted room';
+    browserHeading.textContent = 'LAN play · recommended';
     const browserHint = el('p', 'menu-hint');
-    browserHint.textContent = 'A player hosts from their browser and keeps the tab open on a good connection.';
+    browserHint.textContent = 'Use the same Wi-Fi or wired network and keep the host’s tab in the foreground. Room setup needs internet access; gameplay connects directly when your network allows it. Friends on other networks can also join.';
     browserSection.append(browserHeading, browserHint);
     p.el.appendChild(browserSection);
-    const hostBtn = this.addButton(p, browserSection, 'Host browser room', 1, 0, () => this.hostClicked());
+    const hostBtn = this.addButton(p, browserSection, 'Host LAN room', 1, 0, () => this.hostClicked());
 
     hostBtn.classList.add('primary');
 
@@ -436,7 +436,7 @@ export class Menu {
     joinRow.append(codeLabel, this.codeInput);
     browserSection.appendChild(joinRow);
     p.items.push({ el: joinRow, row: 2, col: 0, activate: () => this.codeInput.focus() });
-    const joinBtn = this.addButton(p, browserSection, 'Join browser room', 3, 0, () => this.joinClicked());
+    const joinBtn = this.addButton(p, browserSection, 'Join LAN room', 3, 0, () => this.joinClicked());
 
     const testBtn = this.addButton(p, browserSection, 'Test browser connection', 4, 0, () => this.onTestConnection?.());
     testBtn.classList.add('subtle');

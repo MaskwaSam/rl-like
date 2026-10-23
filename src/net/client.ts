@@ -9,7 +9,7 @@ import type { Peer } from 'peerjs';
 import { Quaternion, Vector3 } from 'three';
 import type { Team } from '../sim/car';
 import { CAR_FLAG_BOOSTING, CAR_FLAG_DEMOED, CAR_FLAG_SUPERSONIC } from '../sim/car';
-import { Game, type BodyState, type GameConfig, type GameState } from '../sim/game';
+import { Game, type BodyState, type GameConfig, type GameMetaState, type GameState } from '../sim/game';
 import { TICK_DT, TICK_RATE } from '../sim/rl';
 import { ByteReader, quantizeInput } from '../sim/state';
 import { EMPTY_INPUT, type CarInput } from '../input/types';
@@ -82,6 +82,8 @@ export class ClientSession implements Session {
   private lastLocalInput: CarInput = EMPTY_INPUT;
   private ackedInputTick = -1;
   private readonly history = new Map<number, Float32Array>();
+  private readonly metaHistory = new Map<number, GameMetaState>();
+  private bufferedSnapshot: { state: GameState; lastInputTick: number } | null = null;
   private accumulator = 0;
   private timeScale = 1;
   private lastSnapshotTick = -1;
@@ -203,6 +205,7 @@ export class ClientSession implements Session {
         break;
       case 'end':
         this.gameGeneration++;
+        this.bufferedSnapshot = null;
         this.startingGame = false;
         this.inMatch = false;
         this.synced = false;
@@ -218,30 +221,51 @@ export class ClientSession implements Session {
 
   private async startGame(config: GameConfig): Promise<void> {
     const generation = ++this.gameGeneration;
+    if (this.ended) return;
     this.startingGame = true;
-    const game = await Game.create(config);
-    if (generation !== this.gameGeneration) { game.destroy(); return; }
-    this.startingGame = false;
-    if (this.ended) {
-      game.destroy();
-      return;
-    }
-    game.setDodgeDeadzone(this.localId, this.dodgeDeadzone);
-    this.game?.destroy();
-    this.game = game;
+    this.bufferedSnapshot = null;
     this.synced = false;
-    this.inMatch = true;
+    this.game?.destroy();
+    this.game = null;
     this.pending.clear();
     this.history.clear();
+    this.metaHistory.clear();
     this.remote.clear();
-    // New matches restart tick numbering. An old acknowledgement would suppress new inputs.
+    this.inputs.clear();
+    this.lastLocalInput = EMPTY_INPUT;
     this.ackedInputTick = -1;
     this.leadErrorStreak = 0;
     this.lastSnapshotTick = -1;
+    this.latestSnapTick = 0;
+    this.latestSnapAt = 0;
+    this.remoteRenderTick = 0;
+    this.accumulator = 0;
+    this.alpha = 0;
     this.timeScale = 1;
+    this.smoothCarPos.set(0, 0, 0);
+    this.smoothCarQuat.identity();
+    this.smoothBallPos.set(0, 0, 0);
+    let game: Game;
+    try {
+      game = await Game.create(config);
+    } catch (err) {
+      if (generation === this.gameGeneration) this.end(`Could not start match: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (generation !== this.gameGeneration || this.ended) { game.destroy(); return; }
+    this.startingGame = false;
+    game.setDodgeDeadzone(this.localId, this.dodgeDeadzone);
+    this.game = game;
+    this.inMatch = true;
     this.status = 'Waiting for the first snapshot…';
     this.onLobbyChanged?.();
-    this.onMatchStarted?.();
+    this.applyBufferedSnapshot();
+  }
+
+  private applyBufferedSnapshot(): void {
+    const buffered = this.bufferedSnapshot;
+    this.bufferedSnapshot = null;
+    if (buffered) this.onSnapshot(buffered.state, buffered.lastInputTick);
   }
 
   // ---------------------------------------------------------------------------
@@ -311,6 +335,7 @@ export class ClientSession implements Session {
     const game = this.game!;
     const car = game.cars.get(this.localId);
     if (!car) return;
+    this.metaHistory.set(tick, game.captureMetaState());
     const t = car.body.translation();
     const r = car.body.rotation();
     const v = car.body.linvel();
@@ -345,6 +370,12 @@ export class ClientSession implements Session {
   }
 
   private onSnapshot(state: GameState, lastInputTick: number): void {
+    if (this.ended) return;
+    if (this.startingGame) {
+      if (!this.bufferedSnapshot || state.tick > this.bufferedSnapshot.state.tick) this.bufferedSnapshot = { state, lastInputTick };
+      return;
+    }
+    if (!this.game) return;
     if (state.tick <= this.lastSnapshotTick) return; // stale or out of order
     this.stats.snapshots++;
     this.lastSnapshotTick = state.tick;
@@ -358,6 +389,8 @@ export class ClientSession implements Session {
 
     if (!this.synced) {
       this.resync(state, 'initial');
+      this.onLobbyChanged?.();
+      this.onMatchStarted?.();
       return;
     }
 
@@ -401,20 +434,17 @@ export class ClientSession implements Session {
 
     const local = state.cars.find((c) => c.id === this.localId);
     const h = this.history.get(state.tick);
-    const agrees = !!local && !!h && this.matches(h, local.state, state.ball);
+    const meta = this.metaHistory.get(state.tick);
+    const agrees = !!local && !!h && !!meta && this.matches(h, local.state, state.ball) && this.matchesMeta(meta, state);
 
     if (agrees) {
-      // Physics matched at that tick: keep the prediction, take everything else from the host.
-      game.applyMetaState(state);
+      // Both physics and metadata matched at the host tick. Keep our newer predicted timeline:
+      // applying its older countdown/phase here would repeatedly rewind kickoff transitions.
       const leadTicks = game.tick - state.tick;
       const seen = new Set<number>();
       for (const c of state.cars) {
         seen.add(c.id);
-        if (c.id === this.localId) {
-          const car = game.cars.get(c.id);
-          if (car) car.boost = c.state.boost;
-          continue;
-        }
+        if (c.id === this.localId) continue;
         const car = game.addCar(c.id, c.team);
         car.setFrozen(false);
         car.applyState(c.state);
@@ -477,9 +507,26 @@ export class ClientSession implements Session {
 
     for (const t of this.pending.keys()) if (t < state.tick) this.pending.delete(t);
     for (const t of this.history.keys()) if (t < state.tick) this.history.delete(t);
+    for (const t of this.metaHistory.keys()) if (t < state.tick) this.metaHistory.delete(t);
+  }
+
+  private matchesMeta(a: GameMetaState, b: GameMetaState): boolean {
+    if (a.phase !== b.phase || a.overtime !== b.overtime || a.lastGoal !== b.lastGoal ||
+        a.score.blue !== b.score.blue || a.score.orange !== b.score.orange ||
+        a.lastGoalScorer !== b.lastGoalScorer || a.lastTouch !== b.lastTouch ||
+        a.rngState !== b.rngState || a.spawnCursor !== b.spawnCursor || a.currentSpawn !== b.currentSpawn) return false;
+    // Timers travel as float32. Pad comparisons allow two half-quantum errors:
+    // one in our restored snapshot anchor and one in the newly rounded host snapshot.
+    // Their combined bound is .05 s; the epsilon covers floating-point subtraction.
+    for (const key of ['countdown', 'goalPause', 'timeRemaining', 'overtimeElapsed', 'lastGoalSpeed'] as const) {
+      if (Math.abs(a[key] - b[key]) > 0.0001) return false;
+    }
+    return a.spawnOrder.length === b.spawnOrder.length && a.spawnOrder.every((v, i) => v === b.spawnOrder[i]) &&
+      a.pads.length === b.pads.length && a.pads.every((v, i) => Math.abs(v - b.pads[i]) <= 0.050001);
   }
 
   private matches(h: Float32Array, car: GameState['cars'][number]['state'], ball: GameState['ball']): boolean {
+    if (Math.abs(h[10] - car.boost) > 0.01) return false;
     const dp = Math.hypot(h[0] - car.pos.x, h[1] - car.pos.y, h[2] - car.pos.z);
     if (dp > POS_TOL) return false;
     const dv = Math.hypot(h[7] - car.vel.x, h[8] - car.vel.y, h[9] - car.vel.z);
@@ -501,6 +548,7 @@ export class ClientSession implements Session {
     game.applyState(state);
     this.pending.clear();
     this.history.clear();
+    this.metaHistory.clear();
     const rttTicks = Math.ceil(((this.ping ?? 100) / 1000) * TICK_RATE);
     const target = state.tick + Math.ceil(rttTicks / 2) + TARGET_LEAD;
     const neutral = quantizeInput(EMPTY_INPUT);
