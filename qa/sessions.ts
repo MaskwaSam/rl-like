@@ -84,6 +84,31 @@ try {
   } finally { Game.create = originalCreate; }
 } finally { client.leave(); host.leave(); }
 
+// The simulation may reach kickoff before 500 ms of wall time (headless or fast startup).
+// Keep wall time at zero so this checks that the first ping is sent immediately.
+const earlyNowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
+Object.defineProperty(performance, 'now', { configurable: true, value: () => 0 });
+const earlyHost = await HostSession.create('Early clock host');
+const earlyClient = await ClientSession.create(earlyHost.code, 'Early clock client', .5, 0);
+try {
+  await earlyHost.startMatch(); await flush();
+  for (let frame = 0; frame < 190; frame++) {
+    earlyHost.update(EMPTY_INPUT, 1 / 60, false);
+    earlyClient.update(EMPTY_INPUT, 1 / 60, false);
+    await flush();
+  }
+  console.log(`Early 1v1 clock diagnostic: ping=${earlyClient.ping}, lead=${earlyClient.game!.tick - earlyHost.game!.tick}, clockDifference=${Math.abs(earlyClient.game!.timeRemaining - earlyHost.game!.timeRemaining)}`);
+  check(earlyClient.ping === 0, 'first ping was delayed until 500 ms of wall time');
+  check(earlyHost.game!.phase === 'play' && earlyClient.game!.phase === 'play' &&
+    Math.abs(earlyClient.game!.timeRemaining - earlyHost.game!.timeRemaining) < .1,
+    'low-latency 1v1 countdown/clock diverged before 500 ms wall time');
+  console.log('PASS immediate first ping keeps low-latency 1v1 clocks within .1 seconds after 190 frames');
+} finally {
+  earlyClient.leave(); earlyHost.leave();
+  if (earlyNowDescriptor) Object.defineProperty(performance, 'now', earlyNowDescriptor);
+  else delete (performance as unknown as { now?: unknown }).now;
+}
+
 // A shrinking RTT must drain the old prediction lead without revisiting acknowledged ticks.
 const contractionHost = await HostSession.create('Lead contraction host');
 const contractionClient = await ClientSession.create(contractionHost.code, 'Lead contraction client', .5, 0);

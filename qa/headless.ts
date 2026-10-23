@@ -8,6 +8,12 @@ import { FREE_PLAY_CONFIG, Game } from '../src/sim/game';
 import { ARENA, TICK_DT } from '../src/sim/rl';
 import { ByteReader } from '../src/sim/state';
 
+// Match the in-memory transport's zero transit time to the simulation clock. Wall-clock
+// scheduling pauses must not inflate RTT while fixed simulation frames run independently.
+const nowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
+let virtualNow = 0;
+Object.defineProperty(performance, 'now', { configurable: true, value: () => virtualNow });
+try {
 let passed = 0;
 function check(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -71,6 +77,7 @@ const clients: ClientSession[] = [];
 let drive = false;
 async function advance(frames: number): Promise<void> {
   for (let i = 0; i < frames; i++) {
+    virtualNow += 1000 / 60;
     const input = (id: number): CarInput => drive ? { ...EMPTY_INPUT, throttle: 1, boost: true, steer: id % 2 ? .3 : -.3 } : EMPTY_INPUT;
     host.update(input(0), 1 / 60, false);
     for (const client of clients) client.update(input(client.localId), 1 / 60, false);
@@ -137,3 +144,7 @@ try {
   pass('all four visual arenas produce byte-identical physics after 480 ticks of driving, boost, jump and roll');
 } finally { venues.forEach(g => g.destroy()); }
 console.log(`PASS ${passed} headless checks; in-memory transport is not a real WebRTC or cross-network test.`);
+} finally {
+  if (nowDescriptor) Object.defineProperty(performance, 'now', nowDescriptor);
+  else delete (performance as unknown as { now?: unknown }).now;
+}

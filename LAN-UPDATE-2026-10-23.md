@@ -24,6 +24,8 @@ to the returning input, with a bounded recent-RTT jitter allowance. Clock recove
 does not depend on a successful input acknowledgement, so a player whose initial
 inputs all arrive late can recover. Falling latency drains the lead gradually
 without rewinding into input ticks already queued at the authority.
+The first ping is sent immediately so a fresh low-latency LAN connection does not
+remain on the conservative, unmeasured 100 ms estimate.
 
 ## Verification
 
@@ -42,6 +44,9 @@ without rewinding into input ticks already queued at the authority.
   reported 2-5 ms ping in that passing run.
 
 Use `npm run test:sessions` and `npm run test:transport` for the added regressions.
+The in-memory headless/mode suites use a virtual simulation clock so workstation
+scheduling stalls do not turn into fictional network RTT; their clock/input
+assertions are unchanged. Actual WebRTC and delayed/lossy tests remain separate.
 Real-browser evidence is recorded separately with the release package. Tests on
 one Mac do not establish performance between separate devices on the user's LAN.
 

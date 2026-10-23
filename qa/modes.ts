@@ -7,6 +7,12 @@ import { Game } from '../src/sim/game';
 import { ARENA } from '../src/sim/rl';
 import { ByteReader } from '../src/sim/state';
 
+// Match the in-memory transport's zero transit time to the simulation clock. Wall-clock
+// scheduling pauses must not inflate RTT while fixed simulation frames run independently.
+const nowDescriptor = Object.getOwnPropertyDescriptor(performance, 'now');
+let virtualNow = 0;
+Object.defineProperty(performance, 'now', { configurable: true, value: () => virtualNow });
+try {
 const check = (condition: unknown, description: string) => { if (!condition) throw new Error(description); };
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 let checks = 0;
@@ -26,6 +32,7 @@ for (const perTeam of [1, 2, 3, 4]) {
   };
   async function advance(frames: number) {
     for (let i = 0; i < frames; i++) {
+      virtualNow += 1000 / 60;
       const input = (id: number) => driving ? { ...EMPTY_INPUT, throttle: 1, boost: true, steer: id % 2 ? .3 : -.3 } : EMPTY_INPUT;
       host.update(input(0), 1 / 60, false);
       clients.forEach((client) => client.update(input(client.localId), 1 / 60, false));
@@ -106,3 +113,7 @@ for (const scenario of ['solo', 'two-on-blue', 'three-versus-one']) {
   } finally { clients.forEach((client) => client.leave()); host.leave(); }
 }
 console.log(`PASS ${checks} mode/start-rule checks; in-memory transport, no browser or real WebRTC coverage.`);
+} finally {
+  if (nowDescriptor) Object.defineProperty(performance, 'now', nowDescriptor);
+  else delete (performance as unknown as { now?: unknown }).now;
+}

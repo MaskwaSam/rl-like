@@ -94,7 +94,7 @@ export class ClientSession implements Session {
   private latestSnapAt = 0;
   private readonly remote = new Map<number, RemoteBuffer>();
   private remoteRenderTick = 0;
-  private lastPingSent = 0;
+  private lastPingSent = -Infinity;
   private readonly rttSamples: number[] = [];
 
   private readonly smoothCarPos = new Vector3();
