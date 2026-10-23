@@ -9,6 +9,7 @@ import { FollowCamera } from './render/camera';
 import { InputManager, keyName } from './input/input';
 import { EMPTY_INPUT } from './input/types';
 import { MATCH_LENGTHS, Menu, type MenuContext } from './ui/menu';
+import { MatchRetry, retryInputPressed } from './ui/match-retry';
 import { SoundManager } from './audio/sound';
 import { loadSettings, saveSettings } from './settings';
 import { buildLabel } from './build';
@@ -35,6 +36,9 @@ const speedEl = document.getElementById('speed')!;
 const speedValueEl = speedEl.querySelector('.value')!;
 const boostFillEl = document.getElementById('boostFill') as unknown as SVGCircleElement;
 const boostValueEl = document.getElementById('boostValue')!;
+const retryEl = document.getElementById('matchRetry') as HTMLButtonElement;
+const retryLabelEl = document.getElementById('retryLabel')!;
+const bottomRightEl = document.getElementById('bottomright')!;
 
 const GAUGE_FULL = 2 * Math.PI * 56;
 const GAUGE_CIRCUMFERENCE = GAUGE_FULL * 0.78;
@@ -93,6 +97,39 @@ async function main(): Promise<void> {
   const iceReady = loadIceConfig();
 
   let session: Session | null = null;
+  const retry = new MatchRetry();
+  const retryState = () => ({
+    session, game: session?.game ?? null, menuOpen: menu.open,
+    host: session instanceof HostSession || (session instanceof ServerRoomSession && session.lobby.isHost),
+    finished: session?.game?.phase === 'over',
+  });
+  const updateRetry = () => {
+    const state = retry.view(retryState(), performance.now());
+    retryEl.hidden = !state.visible;
+    retryEl.disabled = state.pending;
+    retryEl.setAttribute('aria-busy', String(state.pending));
+    retryLabelEl.textContent = state.pending ? 'Restarting…' : 'Retry';
+    bottomRightEl.classList.toggle('retry-mode', state.visible);
+    hudEl.classList.toggle('retry-visible', state.visible);
+    return state.visible;
+  };
+  const requestRetry = () => {
+    // Re-read role, menu and match state here: hidden/disabled DOM is not an authorization guard.
+    if (retry.activate(retryState(), performance.now(), () => session!.resetMatch())) {
+      input.blockJumpUntilRelease();
+    }
+    updateRetry();
+  };
+  retryEl.addEventListener('click', requestRetry);
+  retryEl.addEventListener('keydown', (event) => {
+    // InputManager prevents native Space activation to avoid scrolling during gameplay.
+    if (event.code === 'Space' && !event.repeat) {
+      event.preventDefault();
+      event.stopPropagation();
+      requestRetry();
+    }
+  });
+
   const selectedArena = () => normalizeArena(session && session.kind !== 'local'
     ? session.game?.config.arena ?? session.lobby?.settings.arena
     : settings.arena.style);
@@ -147,6 +184,7 @@ async function main(): Promise<void> {
     return { kind: session.kind, inMatch: !!session.lobby?.inMatch };
   };
   const refreshMenu = () => {
+    updateRetry();
     menu.setContext(menuContext());
     menu.setLobby(session?.lobby ?? null);
     const room = !!session && session.kind !== 'local';
@@ -439,12 +477,16 @@ async function main(): Promise<void> {
       controllerName = fi.controllerName;
       setController(controllerName);
     }
+    const menuWasOpen = menu.open;
     if (fi.menuPressed) menu.toggle();
     if (menu.open) menu.navigate(fi.nav, frameDt);
+    const retryInput = updateRetry() && retryInputPressed(menuWasOpen, fi.menuPressed, fi.nav.accept, fi.resetPressed);
+    if (retryInput) requestRetry();
 
     // Networked sessions keep running behind the menu; free play pauses.
     session?.update(menu.open ? EMPTY_INPUT : fi.car, sessionDt(now), menu.open);
 
+    updateRetry();
     const game = session?.game ?? null;
     const localCar = game?.cars.get(session!.localId) ?? null;
     const stadiumClock = game && game.config.matchSeconds > 0
@@ -468,7 +510,7 @@ async function main(): Promise<void> {
     hudEl.hidden = false;
     const s = session;
 
-    if (fi.resetPressed) s.resetMatch();
+    if (fi.resetPressed && !retryInput && (game.phase !== 'over' || s.kind === 'local')) s.resetMatch();
     if (fi.toggleCameraPressed) {
       followCam.toggle();
       setCamMode(followCam.ballCam);
@@ -663,7 +705,7 @@ async function main(): Promise<void> {
       const winner: Team | null = game.score.blue === game.score.orange ? null : game.score.blue > game.score.orange ? 'blue' : 'orange';
       const myTeam = localCar.team;
       const title = winner === null ? 'DRAW' : winner === myTeam ? 'VICTORY' : 'DEFEAT';
-      const sub = s.kind === 'host' ? 'Open the menu to return to the lobby' : winner ? `${winner.toUpperCase()} wins` : '';
+      const sub = retryState().host ? 'Retry to play again · Menu for the lobby' : winner ? `${winner.toUpperCase()} wins` : '';
       showBanner(title, `${game.score.blue} – ${game.score.orange}`, sub, winner ? TEAM_COLOR[winner] : '#ffffff', 0);
     } else if (game.phase !== 'over' && lastPhase === 'over') {
       hideBanner();

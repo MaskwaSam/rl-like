@@ -55,6 +55,14 @@
       #controller .ok { color: #7CFC9A; } #controller .warn { color: #ffd166; }
 
       #bottomright { position: absolute; right: 22px; bottom: 16px; display: flex; align-items: flex-end; gap: 18px; }
+      #bottomright.retry-mode { right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); }
+      #bottomright.retry-mode > #speed, #bottomright.retry-mode > #boostGauge { display: none; }
+      #matchRetry { pointer-events: auto; min-width: 140px; min-height: 64px; padding: 10px 20px; text-align: center; font-size: 24px; line-height: 1.2; touch-action: manipulation; text-shadow: none; }
+      #matchRetry[hidden] { display: none; }
+      #matchRetry:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+      #matchRetry .retry-hint { display: block; margin-top: 4px; font-size: 11px; font-weight: 500; }
+      #hud.retry-visible #bottomleft { max-width: calc(100vw - 200px - env(safe-area-inset-right)); }
+
       #speed { text-align: right; font-variant-numeric: tabular-nums; margin-bottom: 14px; min-width: 110px; }
       #speed .value { font-size: 34px; font-weight: 800; line-height: 1; transition: font-size .12s ease-out; }
       #speed .unit { font-size: 12px; opacity: .7; letter-spacing: 1px; }
@@ -180,6 +188,7 @@
       </div>
       <div id="playHints">FREE PLAY <span id="resetHint" hidden><kbd></kbd> RESET </span><kbd>C</kbd> BALL CAM <kbd>ESC</kbd> MENU</div>
       <div id="bottomright">
+        <button id="matchRetry" class="menu-button primary" type="button" aria-label="Retry match" hidden><span id="retryLabel">Retry</span><span class="retry-hint" aria-hidden="true">ENTER / A</span></button>
         <div id="speed"><div class="value">0</div><div class="unit">KM/H</div></div>
         <div id="boostGauge">
           <svg viewBox="0 0 132 132">

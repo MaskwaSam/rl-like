@@ -31,6 +31,13 @@ without rewinding into input ticks already queued at the authority.
 The first ping is sent immediately so a fresh low-latency LAN connection does not
 remain on the conservative, unmeasured 100 ms estimate.
 
+A finished match now gives the LAN host or server-room owner a bottom-right
+Retry button. It restarts with the same room, players and settings, resetting the
+score and kickoff countdown. Guests cannot activate it. Click/touch, Enter,
+focused Space and gamepad A use the same guarded action. Pending requests suppress
+duplicates; opening a menu hides the action, and input consumed by a menu cannot
+also trigger Retry.
+
 ## Verification
 
 - Client/server builds and TypeScript checks.
@@ -39,7 +46,7 @@ remain on the conservative, unmeasured 100 ms estimate.
   physics workers, with temporary test credentials.
 - Focused regressions for historical countdown, active pad cooldown through
   expiry, movement after neutral kickoff, delayed startup and end during startup.
-- Five mocked-channel transport regression scenarios.
+- Eight mocked-channel transport regression scenarios.
 - Independent review reproduced the old countdown failure and verified its fix.
 - Deterministic 300 ms round-trip delay, jitter and 20% packet-loss startup test,
   plus a high-latency-to-LAN contraction regression.
@@ -47,7 +54,13 @@ remain on the conservative, unmeasured 100 ms estimate.
   including input movement, rejoin, reset and a smaller rematch. Seven clients
   reported 2-5 ms ping in that passing run.
 
-Use `npm run test:sessions` and `npm run test:transport` for the added regressions.
+Use `npm run test:sessions`, `npm run test:transport` and
+`npm run test:retry` for the added regressions. Retry browser checks use the
+built main UI with a real LAN host and private server owner/guest. Controlled
+finished-state fixtures avoid waiting through a full match; rendering is paused
+after initial arena setup, so these checks establish UI behavior rather than
+rendered multiplayer performance. Simulated gamepad polling establishes button
+edges, separate from physical controller acceptance.
 The in-memory headless/mode suites use a virtual simulation clock so workstation
 scheduling stalls do not turn into fictional network RTT; their clock/input
 assertions are unchanged. Actual WebRTC and delayed/lossy tests remain separate.
