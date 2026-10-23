@@ -222,7 +222,11 @@ export interface TrafficDiagnostics {
   droppedBackpressure: number;
   droppedUnavailable: number;
   sendErrors: number;
+  fastStallRecoveries: number;
 }
+
+/** Retire a fast channel whose queued bytes stop progressing for this long. */
+const FAST_STALL_TIMEOUT_MS = 250;
 
 /** One connection to a remote peer: a reliable JSON channel and (once set up) a fast binary one. */
 export class Link {
@@ -236,6 +240,9 @@ export class Link {
   private droppedBackpressure = 0;
   private droppedUnavailable = 0;
   private sendErrors = 0;
+  private fastStallRecoveries = 0;
+  private fastBufferedBytes = 0;
+  private fastProgressAt = 0;
 
   constructor(
     readonly conn: DataConnection,
@@ -304,6 +311,7 @@ export class Link {
       droppedBackpressure: this.droppedBackpressure,
       droppedUnavailable: this.droppedUnavailable,
       sendErrors: this.sendErrors,
+      fastStallRecoveries: this.fastStallRecoveries,
     };
   }
 
@@ -318,16 +326,28 @@ export class Link {
     }
   }
 
+  private resetFastProgress(): void {
+    this.fastBufferedBytes = 0;
+    this.fastProgressAt = 0;
+  }
+
   private adoptFast(ch: RTCDataChannel): void {
+    this.resetFastProgress();
     ch.binaryType = 'arraybuffer';
     ch.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) this.onFast?.(e.data);
     };
     ch.onclose = () => {
-      if (this.fast === ch) this.fast = null;
+      if (this.fast === ch) {
+        this.fast = null;
+        this.resetFastProgress();
+      }
     };
     ch.onerror = () => {
-      if (this.fast === ch) this.fast = null;
+      if (this.fast === ch) {
+        this.fast = null;
+        this.resetFastProgress();
+      }
     };
     this.fast = ch;
   }
@@ -348,20 +368,40 @@ export class Link {
     }
     const fast = this.fast;
     if (fast && fast.readyState === 'open') {
-      // Admit at most one packet when the browser queue is empty. Never move
-      // congestion onto the reliable channel: these packets are only useful fresh.
-      if (fast.bufferedAmount > 0) {
-        this.droppedBackpressure++;
-        return;
+      // Brief congestion drops stale traffic. If bytes stop draining for long
+      // enough, retire only this channel and submit the current packet via fallback.
+      const buffered = fast.bufferedAmount;
+      const now = performance.now();
+      if (buffered > 0) {
+        if (this.fastBufferedBytes === 0 || buffered < this.fastBufferedBytes) this.fastProgressAt = now;
+        this.fastBufferedBytes = buffered;
+        if (now - this.fastProgressAt < FAST_STALL_TIMEOUT_MS) {
+          this.droppedBackpressure++;
+          return;
+        }
+        this.fast = null;
+        this.resetFastProgress();
+        this.fastStallRecoveries++;
+        try {
+          fast.close();
+        } catch {
+          /* retired locally even if browser close fails */
+        }
+      } else {
+        this.resetFastProgress();
+        try {
+          fast.send(buf);
+          this.fastSubmitted++;
+          this.fastBufferedBytes = fast.bufferedAmount;
+          this.fastProgressAt = now;
+          return;
+        } catch {
+          this.sendErrors++;
+          // A channel can close between checking readyState and send; try fallback.
+        }
       }
-      try {
-        fast.send(buf);
-        this.fastSubmitted++;
-        return;
-      } catch {
-        this.sendErrors++;
-        // A channel can close between checking readyState and send; try fallback.
-      }
+    } else {
+      this.resetFastProgress();
     }
     const reliable = this.conn.dataChannel;
     if (!this.conn.open || !reliable || reliable.readyState !== 'open') {

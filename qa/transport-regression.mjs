@@ -8,6 +8,9 @@ import { build } from 'vite';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = await mkdtemp(join(tmpdir(), 'car-transport-test-'));
+const originalNow = Object.getOwnPropertyDescriptor(performance, 'now');
+let now = 0;
+Object.defineProperty(performance, 'now', { configurable: true, value: () => now });
 try {
   await build({
     root, configFile: false, logLevel: 'error',
@@ -117,7 +120,66 @@ try {
     conn.events.data(packet);
     assert.equal(received, packet, 'reliable gameplay receive path remains supported');
   }
-  console.log('Transport regression: 5 scenarios passed (queue bounds, recovery, controls, send races, handshake/fallback).');
+  {
+    now = 0;
+    const { conn, link, fast } = fastLink();
+    link.sendFast(packet);
+    now = 249; link.sendFast(new ArrayBuffer(33));
+    assert.equal(link.fastOpen, true, 'short stall keeps fast channel');
+    assert.equal(conn.sent.length, 0, 'short stall does not spill onto reliable');
+    const fresh = new ArrayBuffer(34);
+    now = 251; link.sendFast(fresh);
+    assert.equal(fast.readyState, 'closed', 'stuck channel retires after threshold');
+    assert.equal(conn.open, true, 'retirement preserves reliable connection');
+    assert.deepEqual(fast.sent, [packet], 'obsolete traffic is never resubmitted');
+    assert.deepEqual(conn.sent, [fresh], 'only current fresh packet uses fallback');
+    assert.equal(link.trafficDiagnostics.fastStallRecoveries, 1);
+    for (let i = 0; i < 1000; i++) link.sendFast(packet);
+    assert.equal(conn.sent.length, 1, 'recovered fallback queue stays bounded');
+    link.sendCtrl({ t: 'fastready' });
+    assert.equal(conn.sent.length, 2, 'controls remain reliable after recovery');
+    conn.dataChannel.bufferedAmount = 0;
+    const next = new ArrayBuffer(35); link.sendFast(next);
+    assert.equal(conn.sent.at(-1), next, 'fallback resumes after drain');
+    assert.equal(link.trafficDiagnostics.fastStallRecoveries, 1, 'retirement counted once');
+  }
+  {
+    now = 1000;
+    const { conn, link, fast } = fastLink();
+    link.sendFast(packet);
+    now = 1200; fast.bufferedAmount = 16; link.sendFast(packet);
+    now = 1400; link.sendFast(packet);
+    assert.equal(link.fastOpen, true, 'partial progress restarts stall interval');
+    assert.equal(conn.sent.length, 0);
+    fast.bufferedAmount = 0; link.sendFast(packet);
+    now = 1600; link.sendFast(packet);
+    assert.equal(link.fastOpen, true, 'full drain restarts stall interval');
+    fast.close();
+    const replacement = channel();
+    conn.peerConnection.ondatachannel({ channel: replacement });
+    now = 1800; link.sendFast(packet);
+    now = 2000; link.sendFast(packet);
+    assert.equal(link.fastOpen, true, 'channel switch resets prior stall interval');
+    assert.equal(link.trafficDiagnostics.fastStallRecoveries, 0);
+  }
+  {
+    now = 3000;
+    const { conn, link, fast } = fastLink();
+    link.sendFast(packet);
+    conn.bufferSize = 1;
+    now = 3251; link.sendFast(packet);
+    assert.equal(fast.readyState, 'closed');
+    assert.equal(conn.sent.length, 0, 'retirement still honors PeerJS backlog');
+    conn.bufferSize = 0; conn.dataChannel.bufferedAmount = 1;
+    link.sendFast(packet);
+    assert.equal(conn.sent.length, 0, 'retirement still honors browser backlog');
+    conn.dataChannel.bufferedAmount = 0;
+    const fresh = new ArrayBuffer(36); link.sendFast(fresh);
+    assert.deepEqual(conn.sent, [fresh], 'queue drain admits only newest packet');
+  }
+  console.log('Transport regression: 8 scenarios passed (queue bounds, timed stall recovery, progress reset, controls, send races, handshake/fallback).');
 } finally {
+  if (originalNow) Object.defineProperty(performance, 'now', originalNow);
+  else delete performance.now;
   await rm(outDir, { recursive: true, force: true });
 }

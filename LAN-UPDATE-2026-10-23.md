@@ -18,6 +18,10 @@ LAN/browser rooms remain the primary multiplayer option; server rooms retain the
 existing optional toggle. Automatic direct WebRTC with relay fallback is retained.
 Gameplay sends wait for transport queues to drain instead of accumulating stale
 updates; reliable control messages retain their existing path.
+A fast channel whose queued bytes make no progress for 250 ms is retired without
+closing the peer connection. Fresh packets then use the bounded reliable fallback.
+Real browser testing reproduced a rejoined player's host channel stuck after one
+snapshot; the recovery resumed updates and allowed the reset/rematch checks to pass.
 
 Prediction now accounts for the full round trip from an already delayed snapshot
 to the returning input, with a bounded recent-RTT jitter allowance. Clock recovery
