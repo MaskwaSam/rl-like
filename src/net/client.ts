@@ -21,6 +21,8 @@ import { liveCarState, type CarRenderState, type LobbyState, type Session } from
 
 /** How many ticks of input the host should have in hand when it simulates a tick. */
 const TARGET_LEAD = 3;
+/** Bound prediction/replay work even if the connection temporarily reports a very large RTT. */
+const MAX_PREDICTION_LEAD = 120;
 /** Beyond this disagreement in lead we jump the clock instead of nudging it. */
 const HARD_RESYNC_TICKS = 40;
 /** Remote cars are drawn this many ticks behind the newest snapshot so there is always a next sample. */
@@ -394,21 +396,20 @@ export class ClientSession implements Session {
       return;
     }
 
-    // Clock control: keep the host holding TARGET_LEAD ticks of my input. A wildly wrong lead
-    // that persists for a while (about half a second of snapshots) means the clocks have
-    // drifted apart for good and we jump; a brief one is just a late frame and nudging suffices.
-    if (lastInputTick >= 0) {
-      const lead = lastInputTick - state.tick;
-      const err = TARGET_LEAD - lead;
-      if (Math.abs(err) > HARD_RESYNC_TICKS) {
-        if (++this.leadErrorStreak > 30) {
-          this.leadErrorStreak = 0;
-          this.resync(state, 'lead');
-          return;
-        }
-      } else this.leadErrorStreak = 0;
-      this.timeScale = Math.max(0.9, Math.min(1.15, 1 + 0.02 * err));
-    }
+    // A received snapshot has already spent one downlink in transit; our newly sent input
+    // needs another uplink. Control this full-RTT lead from our clock, independently of ACKs:
+    // if every input arrived late, the authority's -1 ACK must not disable recovery forever.
+    const err = this.predictionLead() - (game.tick - state.tick);
+    // Only a deficit may jump forward. When RTT falls, slow down to drain excess lead;
+    // rewinding would reuse ticks already acknowledged (and queued) by the host.
+    if (err > TARGET_LEAD * 2) {
+      if (++this.leadErrorStreak >= 8) {
+        this.leadErrorStreak = 0;
+        this.resync(state, 'lead');
+        return;
+      }
+    } else this.leadErrorStreak = 0;
+    this.timeScale = Math.max(0.9, Math.min(1.15, 1 + 0.02 * err));
 
     if (state.tick > game.tick) {
       // The host got ahead of our frame loop (a late frame). Simulate the missing ticks now with the
@@ -540,7 +541,13 @@ export class ClientSession implements Session {
     return true;
   }
 
-  /** Adopt the snapshot outright and run ahead of it by half the round trip plus the target lead. */
+  /** Recent peak RTT covers measured jitter; three additional ticks cover normal scheduling. */
+  private predictionLead(): number {
+    const rtt = Math.max(this.ping ?? 100, ...this.rttSamples);
+    return Math.min(MAX_PREDICTION_LEAD, Math.ceil(rtt * TICK_RATE / 1000) + TARGET_LEAD);
+  }
+
+  /** Adopt the snapshot outright and run ahead by the bounded full-RTT input lead. */
   private resync(state: GameState, reason: 'initial' | 'lead' | 'behind'): void {
     const game = this.game!;
     if (reason === 'lead') this.stats.resyncLead++;
@@ -549,17 +556,16 @@ export class ClientSession implements Session {
     this.pending.clear();
     this.history.clear();
     this.metaHistory.clear();
-    const rttTicks = Math.ceil(((this.ping ?? 100) / 1000) * TICK_RATE);
-    const target = state.tick + Math.ceil(rttTicks / 2) + TARGET_LEAD;
-    const neutral = quantizeInput(EMPTY_INPUT);
-    while (game.tick < target && game.tick < state.tick + 120) {
-      this.pending.set(game.tick, neutral);
+    const target = state.tick + this.predictionLead();
+    const input = quantizeInput(reason === 'initial' ? EMPTY_INPUT : this.lastLocalInput);
+    while (game.tick < target) {
+      this.pending.set(game.tick, input);
       this.inputs.clear();
-      this.inputs.set(this.localId, neutral);
+      this.inputs.set(this.localId, input);
       game.step(this.inputs, TICK_DT);
     }
     this.recordHistory(game.tick);
-    this.lastLocalInput = neutral;
+    this.lastLocalInput = input;
     this.accumulator = 0;
     this.timeScale = 1;
     this.synced = true;
