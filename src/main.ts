@@ -155,6 +155,8 @@ async function main(): Promise<void> {
     renderer.setQuality(settings.graphics.quality);
     renderer.setArena(displayedArena());
     sound.setVolume(settings.audio.volume);
+    sound.setMuted(settings.audio.muted);
+    menu.refreshAudioState();
     const localCar = session?.game?.cars.get(session.localId);
     if (localCar) localCar.dodgeDeadzone = settings.controls.dodgeDeadzone;
     if (session instanceof HostSession) {

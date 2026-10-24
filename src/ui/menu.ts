@@ -96,6 +96,7 @@ export class Menu {
   private fullscreenNotice = '';
   private fullscreenButton!: HTMLButtonElement;
   private fullscreenHint!: HTMLElement;
+  private muteButton!: HTMLButtonElement;
 
 
   constructor(
@@ -394,6 +395,12 @@ export class Menu {
     this.addButton(p, this.mainButtons, 'Controls', row++, 0, () => this.show('controls'));
     this.fullscreenButton = this.addButton(p, this.mainButtons, 'Fullscreen', row++, 0, () => this.toggleFullscreen());
     this.renderFullscreen();
+    this.muteButton = this.addButton(p, this.mainButtons, '', row++, 0, () => {
+      this.settings.audio.muted = !this.settings.audio.muted;
+      this.refreshAudioState();
+      this.onSettingsChanged?.();
+    });
+    this.refreshAudioState();
     if (c.kind === 'local') this.addButton(p, this.mainButtons, 'Quit to Menu', row++, 0, () => this.onQuit?.()).classList.add('danger');
     if (c.kind === 'host' || c.kind === 'client') this.addButton(p, this.mainButtons, 'Leave Room', row++, 0, () => this.onLeaveRoom?.()).classList.add('danger');
     if (!this.inviteOnly) this.addButton(p, this.mainButtons, 'Sign out', row++, 0, () => this.onSignOut?.()).classList.add('subtle');
@@ -404,6 +411,12 @@ export class Menu {
   private guardFullscreenInput(): void {
     this.fullscreenGuardUntil = performance.now() + 250;
     this.input.blockJumpUntilRelease();
+  }
+
+  /** Reflect settings changes (including resets) without rebuilding the focused button. */
+  refreshAudioState(): void {
+    this.muteButton.textContent = this.settings.audio.muted ? 'Unmute sound' : 'Mute sound';
+    this.muteButton.setAttribute('aria-pressed', String(this.settings.audio.muted));
   }
 
   private renderFullscreen(): void {

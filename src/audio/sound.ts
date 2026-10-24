@@ -98,6 +98,7 @@ export class SoundManager {
   private wind!: NoiseLayer;
   private noiseBuffer!: AudioBuffer;
   private volume = 0.6;
+  private muted = false;
   private lastHitAt = 0;
   private lastCarHitAt = 0;
 
@@ -107,7 +108,23 @@ export class SoundManager {
 
   setVolume(v: number): void {
     this.volume = v;
-    if (this.ctx) this.master.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    if (this.ctx) {
+      const t = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(t);
+      if (this.muted) this.master.gain.setValueAtTime(0, t);
+      else this.master.gain.setTargetAtTime(v, t, 0.05);
+    }
+  }
+
+  setMuted(muted: boolean): void {
+    if (this.muted === muted) return;
+    this.muted = muted;
+    if (this.ctx) {
+      const t = this.ctx.currentTime;
+      // Replace pending volume automation so rapid toggles always honor the latest state.
+      this.master.gain.cancelScheduledValues(t);
+      this.master.gain.setValueAtTime(muted ? 0 : this.volume, t);
+    }
   }
 
   /** Create the graph. Must be called from a user gesture the first time. */
@@ -119,7 +136,7 @@ export class SoundManager {
     const ctx = new AudioContext();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = this.volume;
+    this.master.gain.value = this.muted ? 0 : this.volume;
     // Gentle limiter so stacked impacts do not clip.
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -12;
