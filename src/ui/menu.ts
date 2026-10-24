@@ -582,10 +582,15 @@ export class Menu {
   // ---------------------------------------------------------------------------
 
   private lobbyBody!: HTMLElement;
+  private lobbyTitleRow!: HTMLElement;
 
   private buildLobby(): void {
     const p = this.addPanel('lobby', 'main', 'Lobby', true);
     p.el.classList.add('lobby-panel');
+    const title = p.el.querySelector('.menu-title')!;
+    this.lobbyTitleRow = el('div', 'lobby-title-row');
+    p.el.insertBefore(this.lobbyTitleRow, title);
+    this.lobbyTitleRow.appendChild(title);
     this.lobbyBody = el('div', 'lobby');
     p.el.appendChild(this.lobbyBody);
   }
@@ -597,6 +602,7 @@ export class Menu {
     this.lobbyBody.replaceChildren();
     const s = this.lobbyState;
     const title = p.el.querySelector('.menu-title')!;
+    this.lobbyTitleRow.replaceChildren(title);
     if (!s) {
       title.textContent = 'Lobby';
       const msg = el('p', 'menu-hint');
@@ -612,6 +618,10 @@ export class Menu {
     const totalCapacity = server ? teamCapacity * 2 : MAX_PLAYERS;
     let controlRow = 0;
     title.innerHTML = server ? 'Server room' : `Room <span class="accent code">${escapeHtml(s.code)}</span>`;
+    if (!server && s.isHost) {
+      const copyButton = this.addButton(p, this.lobbyTitleRow, 'Copy room code', -1, 0, () => void this.copyInvite(s.code, 'Code copied.'));
+      copyButton.classList.add('lobby-copy-code');
+    }
     if (server) {
       const invite = el('div', 'room-invite');
       const label = el('div', 'room-code-label');

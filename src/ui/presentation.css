@@ -137,7 +137,13 @@ html, body { font-family: 'Avenir Next Condensed', 'Arial Narrow', system-ui, sa
 .arena-choice-selected[hidden] { display: none; }
 .arena-choice:disabled { opacity: .8; }
 .lobby-arena .lobby-info { justify-content: flex-start; }
+.lobby-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.lobby-title-row .menu-title { margin: 0; }
+.lobby-copy-code { min-height: 44px; margin-left: auto; padding: 8px 14px; font-size: 15px; }
+.lobby-title-row .code { user-select: text; }
 @media (max-width: 560px) {
+  .lobby-title-row { gap: 8px; }
+  .lobby-copy-code { min-height: 44px; }
   .menu.arena-screen { align-items: flex-end; padding: 16px 16px 28px; background: none; }
   .menu-panel.arena-panel { width: 100%; max-height: min(70dvh, calc(100dvh - 50px)); padding: 18px; gap: 10px; }
   .arena-choices { gap: 8px; }
