@@ -10,6 +10,7 @@ import { InputManager, keyName } from './input/input';
 import { EMPTY_INPUT } from './input/types';
 import { MATCH_LENGTHS, Menu, type MenuContext } from './ui/menu';
 import { MatchRetry, retryInputPressed } from './ui/match-retry';
+import { ControlsReminder } from './ui/controlsReminder';
 import { SoundManager } from './audio/sound';
 import { loadSettings, saveSettings } from './settings';
 import { buildLabel } from './build';
@@ -81,14 +82,18 @@ async function main(): Promise<void> {
   const followCam = new FollowCamera(settings);
   const input = new InputManager(settings);
   const menu = new Menu(document.body, input, settings);
-  const updateResetHint = () => {
+  const controlsReminder = new ControlsReminder(document.body, input);
+  let controlsReminderOpened = false;
+  const updatePlayHints = () => {
     const hint = document.getElementById('resetHint')!;
     const code = input.bindings.keyboard.reset;
     hint.hidden = !code;
     hint.querySelector('kbd')!.textContent = keyName(code);
+    document.getElementById('ballCamHintKey')!.textContent = keyName(input.bindings.keyboard.ballCam) || 'Unassigned';
+    document.getElementById('menuHintKey')!.textContent = keyName(input.bindings.keyboard.menu) || 'Unassigned';
   };
-  menu.onBindingsChanged = updateResetHint;
-  updateResetHint();
+  menu.onBindingsChanged = updatePlayHints;
+  updatePlayHints();
   const inviteOnly = accessState.access === 'invite';
   menu.setInviteOnly(inviteOnly);
   menu.setServerAccess(!inviteOnly);
@@ -211,7 +216,7 @@ async function main(): Promise<void> {
         location.reload();
         return;
       }
-      if (session === s) session = null;
+      if (session === s) { session = null; controlsReminder.hide(); }
       renderer.syncCars([], -1, 0);
       refreshMenu();
       menu.setMultiplayerStatus(reason);
@@ -222,6 +227,7 @@ async function main(): Promise<void> {
   };
 
   const endSession = () => {
+    controlsReminder.hide();
     const s = session;
     session = null;
     if (s) {
@@ -383,6 +389,10 @@ async function main(): Promise<void> {
   };
 
   menu.onSettingsChanged = applySettings;
+  menu.onShowControlsReminder = () => {
+    controlsReminder.show();
+    controlsReminderOpened = true;
+  };
   menu.onPlay = () => {
     resetFrameTimers();
     input.blockJumpUntilRelease();
@@ -475,6 +485,7 @@ async function main(): Promise<void> {
     last = now;
     lastFrameAt = now;
 
+    controlsReminder.update(!!session?.game && !menu.open, controllerName);
     const fi = input.poll();
     if (fi.controllerName !== controllerName) {
       controllerName = fi.controllerName;
@@ -483,6 +494,17 @@ async function main(): Promise<void> {
     const menuWasOpen = menu.open;
     if (fi.menuPressed && !menu.fullscreenTransition) menu.toggle();
     if (menu.open) menu.navigate(fi.nav, frameDt);
+    if (controlsReminderOpened) {
+      // The menu callback ran after the frame's first poll. Re-read only car state
+      // with its accept key/button consumed; keep held movement and discard UI edges.
+      fi.car = input.poll().car;
+      fi.resetPressed = false;
+      fi.toggleCameraPressed = false;
+      fi.menuPressed = false;
+      fi.nav.accept = false;
+      fi.nav.back = false;
+      controlsReminderOpened = false;
+    }
     const retryInput = updateRetry() && !menu.fullscreenTransition && retryInputPressed(menuWasOpen, fi.menuPressed, fi.nav.accept, fi.resetPressed);
     if (retryInput) requestRetry();
 

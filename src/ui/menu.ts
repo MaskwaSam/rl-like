@@ -64,6 +64,7 @@ export class Menu {
   onEndMatch: (() => void) | null = null;
   onSelectArena: ((arena: number) => void) | null = null;
   onBindingsChanged: (() => void) | null = null;
+  onShowControlsReminder: (() => void) | null = null;
   onSettingsChanged: (() => void) | null = null;
 
   private readonly root: HTMLElement;
@@ -97,6 +98,8 @@ export class Menu {
   private fullscreenButton!: HTMLButtonElement;
   private fullscreenHint!: HTMLElement;
   private muteButton!: HTMLButtonElement;
+  private controlsReminderButton!: HTMLButtonElement;
+  private controlsReminderHint!: HTMLElement;
 
 
   constructor(
@@ -221,6 +224,7 @@ export class Menu {
 
   setContext(ctx: MenuContext): void {
     this.context = ctx;
+    this.renderControlsReminderAction();
     if (this.screen === 'main') this.renderMain();
     if (this.screen === 'lobby') this.renderLobby();
   }
@@ -967,6 +971,8 @@ export class Menu {
     p.el.appendChild(table);
     const footer = el('div', 'menu-row');
     p.el.appendChild(footer);
+    this.controlsReminderHint = el('p', 'menu-hint');
+    p.el.appendChild(this.controlsReminderHint);
 
     const render = () => {
       // Rebuild the table and the item list (footer buttons re-added after).
@@ -996,9 +1002,24 @@ export class Menu {
         this.onBindingsChanged?.();
       });
       this.addButton(p, footer, 'Back', r, 2, () => this.back());
+      this.controlsReminderButton = this.addButton(p, footer, 'Show in-game reminder', r + 1, 1, () => {
+        if (!this.canResume()) return;
+        this.input.consumeMenuAcceptUntilRelease();
+        this.onShowControlsReminder?.();
+        this.play();
+      });
+      this.controlsReminderButton.dataset.action = 'show-controls-reminder';
+      this.renderControlsReminderAction();
       if (this.screen === 'controls') this.setFocus(p.focus);
     };
     render();
+  }
+
+  private renderControlsReminderAction(): void {
+    this.controlsReminderButton.disabled = !this.canResume();
+    this.controlsReminderHint.textContent = this.canResume()
+      ? 'Show a compact controls card while you play. Reopen it here anytime.'
+      : 'Start Free Play or join a match to show the in-game reminder.';
   }
 
   private bindCell(p: Panel, action: Action, kind: 'gamepad' | 'key', row: number, col: number, rerender: () => void): HTMLButtonElement {

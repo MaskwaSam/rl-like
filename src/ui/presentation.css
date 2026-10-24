@@ -1,4 +1,22 @@
 /* Daylight arena presentation. Existing controls and focus/navigation remain code-native. */
+#controlsReminder { position: fixed; top: 88px; right: 18px; z-index: 12; width: 284px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 190px); overflow-y: auto; padding: 12px; box-sizing: border-box; color: #edf4fb; background: #08141feb; border: 1px solid #b9e3ff66; border-radius: 3px; font-size: 12px; }
+#controlsReminder[hidden] { display: none; }
+.controls-reminder-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.controls-reminder-header strong { font-size: 17px; }
+#closeControlsReminder { min-height: 32px; padding: 4px 10px; background: #284558; border: 1px solid #b9e3ff99; color: white; cursor: pointer; }
+#controlsReminder :focus-visible { outline: 2px solid #b9e3ff; outline-offset: 2px; }
+.controls-reminder-dismiss { margin: 7px 0; line-height: 1.4; color: #c4d4df; font-size: 11px; }
+#controlsReminder summary { cursor: pointer; padding: 3px 0 7px; }
+.controls-reminder-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 67px; gap: 5px; padding: 4px 0; overflow-wrap: anywhere; }
+.controls-reminder-row[data-action="headings"] { color: #b9c6d4; font-size: 10px; }
+#controlsReminder details p { margin: 7px 0 0; color: #b9c6d4; font-size: 10px; }
+@media (max-width: 560px) {
+  #controlsReminder { top: 82px; right: 10px; width: 250px; padding: 9px; max-height: calc(100dvh - 210px); }
+  #closeControlsReminder { min-height: 36px; }
+}
+@media (max-height: 580px) and (min-width: 561px) {
+  #controlsReminder { top: 80px; left: 18px; right: auto; max-height: calc(100dvh - 160px); }
+}
 :root { --panel: rgba(12, 22, 33, .93); --muted: #b9c6d4; --focus: #b9e3ff; --accent: #e7ae61; }
 html, body { font-family: 'Avenir Next Condensed', 'Arial Narrow', system-ui, sans-serif; }
 .menu { padding: 28px; box-sizing: border-box; background: rgba(6, 16, 27, .36); }
