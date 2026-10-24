@@ -91,6 +91,11 @@ export class Menu {
   private selectedArena = 0;
   private arenaCanSelect = false;
   private arenaRoom = false;
+  private fullscreenBusy = false;
+  private fullscreenGuardUntil = 0;
+  private fullscreenNotice = '';
+  private fullscreenButton!: HTMLButtonElement;
+  private fullscreenHint!: HTMLElement;
 
 
   constructor(
@@ -115,11 +120,27 @@ export class Menu {
     version.title = 'Build identifier — include this when reporting a problem';
     this.root.appendChild(version);
     container.appendChild(this.root);
+    document.addEventListener('fullscreenchange', () => {
+      this.fullscreenNotice = '';
+      this.guardFullscreenInput();
+      this.renderFullscreen();
+    });
+    document.addEventListener('visibilitychange', () => this.renderFullscreen());
+    window.addEventListener('keydown', (event) => {
+      if (event.code !== 'Escape' || (!document.fullscreenElement && !this.fullscreenTransition)) return;
+      // Leave the browser's Escape default intact, but do not also resume the game.
+      event.stopPropagation();
+      this.guardFullscreenInput();
+    }, true);
     this.show('main');
   }
 
   get open(): boolean {
     return this.screen !== 'hidden';
+  }
+
+  get fullscreenTransition(): boolean {
+    return this.fullscreenBusy || performance.now() < this.fullscreenGuardUntil;
   }
 
   get playerName(): string {
@@ -174,7 +195,7 @@ export class Menu {
 
   /** Feed navigation every frame while open. */
   navigate(nav: FrameInput['nav'], dt: number): void {
-    if (this.screen === 'hidden' || this.input.capturing) return;
+    if (this.screen === 'hidden' || this.input.capturing || this.fullscreenTransition) return;
     const dir = nav.upHeld ? 'up' : nav.downHeld ? 'down' : nav.leftHeld ? 'left' : nav.rightHeld ? 'right' : null;
     if (dir !== this.heldDir) {
       this.heldDir = dir;
@@ -311,9 +332,10 @@ export class Menu {
   }
 
   private addButton(panel: Panel, parentEl: HTMLElement, text: string, row: number, col: number, onClick: () => void): HTMLButtonElement {
-    const b = button(text, onClick);
+    const activate = () => { if (!this.fullscreenTransition) onClick(); };
+    const b = button(text, activate);
     parentEl.appendChild(b);
-    panel.items.push({ el: b, row, col, activate: onClick });
+    panel.items.push({ el: b, row, col, activate });
     return b;
   }
 
@@ -333,6 +355,9 @@ export class Menu {
     title.after(sub);
     this.mainButtons = el('div', 'menu-stack');
     p.el.appendChild(this.mainButtons);
+    this.fullscreenHint = el('p', 'menu-hint fullscreen-hint');
+    this.fullscreenHint.setAttribute('role', 'status');
+    p.el.appendChild(this.fullscreenHint);
     const hint = el('p', 'menu-hint');
     hint.innerHTML =
       '<span class="btn-glyph">Esc</span> / <span class="btn-glyph">Start</span> opens this menu during play. ' +
@@ -367,11 +392,59 @@ export class Menu {
     this.addButton(p, this.mainButtons, 'Garage', row++, 0, () => this.show('garage'));
     this.addButton(p, this.mainButtons, 'Settings', row++, 0, () => this.show('settings'));
     this.addButton(p, this.mainButtons, 'Controls', row++, 0, () => this.show('controls'));
+    this.fullscreenButton = this.addButton(p, this.mainButtons, 'Fullscreen', row++, 0, () => this.toggleFullscreen());
+    this.renderFullscreen();
     if (c.kind === 'local') this.addButton(p, this.mainButtons, 'Quit to Menu', row++, 0, () => this.onQuit?.()).classList.add('danger');
     if (c.kind === 'host' || c.kind === 'client') this.addButton(p, this.mainButtons, 'Leave Room', row++, 0, () => this.onLeaveRoom?.()).classList.add('danger');
     if (!this.inviteOnly) this.addButton(p, this.mainButtons, 'Sign out', row++, 0, () => this.onSignOut?.()).classList.add('subtle');
     p.focus = Math.min(focus, p.items.length - 1);
     if (this.screen === 'main') this.setFocus(p.focus);
+  }
+
+  private guardFullscreenInput(): void {
+    this.fullscreenGuardUntil = performance.now() + 250;
+    this.input.blockJumpUntilRelease();
+  }
+
+  private renderFullscreen(): void {
+    const active = !!document.fullscreenElement;
+    const supported = active
+      ? typeof document.exitFullscreen === 'function'
+      : typeof document.documentElement.requestFullscreen === 'function' && document.fullscreenEnabled !== false;
+    this.fullscreenButton.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    this.fullscreenButton.disabled = this.fullscreenBusy || !supported;
+    this.fullscreenButton.setAttribute('aria-busy', String(this.fullscreenBusy));
+    this.fullscreenHint.textContent = this.fullscreenNotice || (!supported
+      ? 'Fullscreen is unavailable in this browser or page.'
+      : this.fullscreenBusy ? 'Changing fullscreen…' : 'Press Esc to exit fullscreen.');
+  }
+
+  private toggleFullscreen(): void {
+    if (this.fullscreenBusy) return;
+    this.fullscreenBusy = true;
+    this.fullscreenNotice = '';
+    this.guardFullscreenInput();
+    this.renderFullscreen();
+    const failed = () => {
+      this.fullscreenNotice = document.fullscreenElement
+        ? 'Could not exit fullscreen. Press Esc to exit.'
+        : 'Fullscreen was blocked. Try clicking Fullscreen, or check browser permissions.';
+    };
+    const finished = () => {
+      this.fullscreenBusy = false;
+      this.guardFullscreenInput();
+      this.renderFullscreen();
+    };
+    try {
+      // Invoke before awaiting so a click or keyboard gesture can authorize the request.
+      const request = document.fullscreenElement
+        ? document.exitFullscreen()
+        : document.documentElement.requestFullscreen();
+      void Promise.resolve(request).catch(failed).finally(finished);
+    } catch {
+      failed();
+      finished();
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ html, body { font-family: 'Avenir Next Condensed', 'Arial Narrow', system-ui, sa
 .main-panel .menu-button.focused { outline: 0; box-shadow: inset 4px 0 #eaf6ff; background: linear-gradient(#ecf7ff, #a7d4f4); color: #1d3b51; }
 .focused { outline-color: #c9eaff; box-shadow: 0 0 0 4px #c9eaff15; }
 .main-panel .menu-hint { margin-top: 24px; font-size: 12px; max-width: 290px; color: #edf3fb; line-height: 1.5; text-shadow: 0 1px 5px #000; }
+.main-panel .fullscreen-hint { margin: 4px 0 0; }
 .menu-hint kbd, .menu-hint .btn-glyph { border-radius: 2px; }
 .build-stamp { color: #e0eaf0; background: #091a29b3; padding: 5px 8px; border-radius: 2px; }
 .menu.garage { padding-bottom: 4vh; }

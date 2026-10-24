@@ -114,6 +114,7 @@ async function main(): Promise<void> {
     return state.visible;
   };
   const requestRetry = () => {
+    if (menu.fullscreenTransition) return;
     // Re-read role, menu and match state here: hidden/disabled DOM is not an authorization guard.
     if (retry.activate(retryState(), performance.now(), () => session!.resetMatch())) {
       input.blockJumpUntilRelease();
@@ -478,13 +479,13 @@ async function main(): Promise<void> {
       setController(controllerName);
     }
     const menuWasOpen = menu.open;
-    if (fi.menuPressed) menu.toggle();
+    if (fi.menuPressed && !menu.fullscreenTransition) menu.toggle();
     if (menu.open) menu.navigate(fi.nav, frameDt);
-    const retryInput = updateRetry() && retryInputPressed(menuWasOpen, fi.menuPressed, fi.nav.accept, fi.resetPressed);
+    const retryInput = updateRetry() && !menu.fullscreenTransition && retryInputPressed(menuWasOpen, fi.menuPressed, fi.nav.accept, fi.resetPressed);
     if (retryInput) requestRetry();
 
     // Networked sessions keep running behind the menu; free play pauses.
-    session?.update(menu.open ? EMPTY_INPUT : fi.car, sessionDt(now), menu.open);
+    session?.update(menu.open || menu.fullscreenTransition ? EMPTY_INPUT : fi.car, sessionDt(now), menu.open);
 
     updateRetry();
     const game = session?.game ?? null;
