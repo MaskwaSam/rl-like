@@ -11,6 +11,7 @@ import { EMPTY_INPUT } from './input/types';
 import { MATCH_LENGTHS, Menu, type MenuContext } from './ui/menu';
 import { MatchRetry, retryInputPressed } from './ui/match-retry';
 import { ControlsReminder } from './ui/controlsReminder';
+import { ControllerNotice } from './ui/controllerNotice';
 import { LeaveConfirmation } from './ui/leaveConfirmation';
 import { SoundManager } from './audio/sound';
 import { loadSettings, saveSettings } from './settings';
@@ -84,6 +85,7 @@ async function main(): Promise<void> {
   const input = new InputManager(settings);
   const menu = new Menu(document.body, input, settings);
   const controlsReminder = new ControlsReminder(document.body, input);
+  const controllerNotice = new ControllerNotice(document.body);
   const leaveConfirmation = new LeaveConfirmation(
     document.body, input, () => !!document.fullscreenElement || menu.fullscreenTransition,
   );
@@ -187,7 +189,6 @@ async function main(): Promise<void> {
 
   let controllerName: string | null = null;
   input.onControllerChange = (name) => {
-    controllerName = name;
     setController(name);
   };
   setController(null);
@@ -212,6 +213,7 @@ async function main(): Promise<void> {
   };
 
   const attach = (s: Session) => {
+    controllerNotice.reset();
     invalidateExit();
     session = s;
     s.onLobbyChanged = refreshMenu;
@@ -223,6 +225,7 @@ async function main(): Promise<void> {
     };
     s.onEnded = (reason) => {
       if (session !== s) return;
+      controllerNotice.reset();
       invalidateExit();
       if (inviteOnly && s instanceof ServerRoomSession) {
         sessionStorage.setItem('car-access-notice', reason);
@@ -241,6 +244,7 @@ async function main(): Promise<void> {
   };
 
   const endSession = () => {
+    controllerNotice.reset();
     invalidateExit();
     controlsReminder.hide();
     const s = session;
@@ -282,6 +286,7 @@ async function main(): Promise<void> {
         : target.kind === 'host'
           ? 'You are hosting this browser room. Leaving ends the room and disconnects everyone.'
           : 'This disconnects you from the browser room. The other players can keep playing.';
+    controllerNotice.reset();
     leaveConfirmation.show({
       title: action === 'quit' ? 'Quit Free Play?' : 'Leave room?',
       message,
@@ -313,7 +318,10 @@ async function main(): Promise<void> {
       },
     });
   };
-  menu.onScreenChanged = invalidateExit;
+  menu.onScreenChanged = () => {
+    invalidateExit();
+    controllerNotice.reset();
+  };
   menu.onQuit = (destination) => requestExit('quit', destination);
   menu.onSignOut = () => { endSession(); void roomApi('logout', {}).finally(() => location.reload()); };
   menu.onHost = async (name) => {
@@ -581,6 +589,7 @@ async function main(): Promise<void> {
     updateRetry();
     const game = session?.game ?? null;
     const localCar = game?.cars.get(session!.localId) ?? null;
+    controllerNotice.update(fi.controllerName, !!game && !!localCar && !menu.open && !leaveConfirmation.open, now);
     const stadiumClock = game && game.config.matchSeconds > 0
       ? game.overtime ? `+${formatClock(game.overtimeElapsed)}` : formatClock(game.timeRemaining)
       : 'FREE';
