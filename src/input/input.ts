@@ -227,6 +227,17 @@ export class InputManager {
     if (gp && pressed(gp, NAV.accept)) this.consumedButtons.add(NAV.accept);
   }
 
+  /** Consume a modal's Back / menu dismissal without changing held movement. */
+  consumeMenuBackUntilRelease(): void {
+    for (const code of ['Backspace', this.bindings.keyboard.menu]) {
+      if (code && (this.keys.has(code) || this.tapped.has(code))) this.consumeKeyUntilRelease(code);
+    }
+    const gp = this.currentGamepad();
+    for (const button of [NAV.back, this.bindings.gamepad.menu]) {
+      if (gp && pressed(gp, button)) this.consumedButtons.add(button);
+    }
+  }
+
   /** An intentional UI chord: hold the modifier first, then newly press its action. */
   consumeGamepadChord(modifier: number, action: number): boolean {
     const gp = this.currentGamepad();

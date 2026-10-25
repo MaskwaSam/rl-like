@@ -1,4 +1,13 @@
 /* Daylight arena presentation. Existing controls and focus/navigation remain code-native. */
+#leaveConfirmation { width: min(440px, calc(100vw - 36px)); max-height: calc(100dvh - 36px); overflow: auto; box-sizing: border-box; padding: 26px; color: #edf4fb; background: #08141ff7; border: 1px solid #b9e3ff77; border-radius: 4px; box-shadow: 0 15px 70px #0009; font-family: inherit; }
+#leaveConfirmation::backdrop { background: #020a14bc; }
+#leaveConfirmation h2 { margin: 0 0 14px; font-size: 26px; }
+#leaveConfirmation p { margin: 0 0 23px; line-height: 1.55; font-size: 16px; }
+.leave-confirmation-choices { display: flex; flex-wrap: wrap; gap: 12px; }
+.leave-confirmation-choices button { flex: 1 1 145px; min-height: 46px; }
+#leaveConfirmation button:focus { outline: 3px solid #b9e3ff; outline-offset: 3px; }
+#leaveConfirmation .danger { background: #8e292f; color: white; border-color: #f29d9d; }
+@media (max-width: 560px) { #leaveConfirmation { padding: 22px; } }
 #controlsReminder { position: fixed; top: 88px; right: 18px; z-index: 12; width: 284px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 190px); overflow-y: auto; padding: 12px; box-sizing: border-box; color: #edf4fb; background: #08141feb; border: 1px solid #b9e3ff66; border-radius: 3px; font-size: 12px; }
 #controlsReminder[hidden] { display: none; }
 .controls-reminder-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

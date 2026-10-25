@@ -11,6 +11,7 @@ import { EMPTY_INPUT } from './input/types';
 import { MATCH_LENGTHS, Menu, type MenuContext } from './ui/menu';
 import { MatchRetry, retryInputPressed } from './ui/match-retry';
 import { ControlsReminder } from './ui/controlsReminder';
+import { LeaveConfirmation } from './ui/leaveConfirmation';
 import { SoundManager } from './audio/sound';
 import { loadSettings, saveSettings } from './settings';
 import { buildLabel } from './build';
@@ -83,6 +84,14 @@ async function main(): Promise<void> {
   const input = new InputManager(settings);
   const menu = new Menu(document.body, input, settings);
   const controlsReminder = new ControlsReminder(document.body, input);
+  const leaveConfirmation = new LeaveConfirmation(
+    document.body, input, () => !!document.fullscreenElement || menu.fullscreenTransition,
+  );
+  let exitRequestVersion = 0;
+  const invalidateExit = () => {
+    exitRequestVersion++;
+    leaveConfirmation.invalidate();
+  };
   let controlsReminderOpened = false;
   const updatePlayHints = () => {
     const hint = document.getElementById('resetHint')!;
@@ -192,6 +201,7 @@ async function main(): Promise<void> {
     return { kind: session.kind, inMatch: !!session.lobby?.inMatch };
   };
   const refreshMenu = () => {
+    leaveConfirmation.validate();
     updateRetry();
     menu.setContext(menuContext());
     menu.setLobby(session?.lobby ?? null);
@@ -202,14 +212,18 @@ async function main(): Promise<void> {
   };
 
   const attach = (s: Session) => {
+    invalidateExit();
     session = s;
     s.onLobbyChanged = refreshMenu;
     s.onMatchStarted = () => {
+      invalidateExit();
       refreshMenu();
       resetFrameTimers();
       menu.play();
     };
     s.onEnded = (reason) => {
+      if (session !== s) return;
+      invalidateExit();
       if (inviteOnly && s instanceof ServerRoomSession) {
         sessionStorage.setItem('car-access-notice', reason);
         if (reason === 'Room opened in another tab.') sessionStorage.setItem('car-room-replaced', '1');
@@ -227,6 +241,7 @@ async function main(): Promise<void> {
   };
 
   const endSession = () => {
+    invalidateExit();
     controlsReminder.hide();
     const s = session;
     session = null;
@@ -245,11 +260,61 @@ async function main(): Promise<void> {
     resetFrameTimers();
     menu.play();
   };
-  menu.onQuit = () => {
-    if (inviteOnly) { void roomApi('leave', {}).finally(() => location.reload()); return; }
-    endSession();
-    menu.show('main');
+  let exitInFlight: Session | null = null;
+  const requestExit = (action: 'quit' | 'leave', destination: 'main' | 'multiplayer' = 'main') => {
+    const target = session;
+    if (!target || exitInFlight === target || leaveConfirmation.open ||
+        (action === 'quit') !== (target.kind === 'local')) return;
+    const screen = menu.screen;
+    const game = target.game;
+    const context = () => JSON.stringify([
+      target.kind, target instanceof ServerRoomSession, target.localId,
+      target.lobby?.code, target.lobby?.isHost, target.lobby?.inMatch, target.lobby?.status,
+    ]);
+    const token = context();
+    const requestVersion = ++exitRequestVersion;
+    const valid = () => exitRequestVersion === requestVersion && session === target && target.game === game && context() === token && menu.screen === screen;
+    const running = target.kind === 'local' || !!target.lobby?.inMatch;
+    const message = target.kind === 'local'
+      ? `This ends your Free Play session and returns to the ${destination === 'multiplayer' ? 'Multiplayer' : 'main'} menu.`
+      : target instanceof ServerRoomSession
+        ? 'This leaves the server room for you only. Close room is a separate owner action.'
+        : target.kind === 'host'
+          ? 'You are hosting this browser room. Leaving ends the room and disconnects everyone.'
+          : 'This disconnects you from the browser room. The other players can keep playing.';
+    leaveConfirmation.show({
+      title: action === 'quit' ? 'Quit Free Play?' : 'Leave room?',
+      message,
+      action: action === 'quit' ? 'Quit to menu' : 'Leave room',
+      valid,
+      cancel: () => {
+        input.blockJumpUntilRelease();
+        // Share the same-frame resume guard used by the optional controls card.
+        controlsReminderOpened = true;
+        if (running) menu.play();
+        else menu.show(screen);
+      },
+      confirm: () => {
+        if (!valid()) return;
+        exitInFlight = target;
+        void (async () => {
+          try {
+            if (target instanceof ServerRoomSession) await roomApi('leave', {}).catch(() => {});
+            // A delayed response belongs only to the session that requested it.
+            if (!valid()) return;
+            endSession();
+            if (inviteOnly) { location.reload(); return; }
+            if (action === 'leave') menu.setMultiplayerStatus('');
+            menu.show(action === 'leave' ? 'multiplayer' : destination);
+          } finally {
+            if (exitInFlight === target) exitInFlight = null;
+          }
+        })();
+      },
+    });
   };
+  menu.onScreenChanged = invalidateExit;
+  menu.onQuit = (destination) => requestExit('quit', destination);
   menu.onSignOut = () => { endSession(); void roomApi('logout', {}).finally(() => location.reload()); };
   menu.onHost = async (name) => {
     if (inviteOnly) return;
@@ -281,13 +346,7 @@ async function main(): Promise<void> {
       menu.setMultiplayerStatus(`Could not join: ${describeError(err)}`);
     }
   };
-  menu.onLeaveRoom = async () => {
-    if (session instanceof ServerRoomSession) await roomApi('leave', {}).catch(() => {});
-    endSession();
-    if (inviteOnly) { location.reload(); return; }
-    menu.setMultiplayerStatus('');
-    menu.show('multiplayer');
-  };
+  menu.onLeaveRoom = () => requestExit('leave');
   menu.onSwitchTeam = () => {
     if (session instanceof HostSession) session.setHostTeam(session.hostTeam === 'blue' ? 'orange' : 'blue');
     else if (session instanceof ClientSession || session instanceof ServerRoomSession) {
@@ -486,14 +545,22 @@ async function main(): Promise<void> {
     lastFrameAt = now;
 
     controlsReminder.update(!!session?.game && !menu.open, controllerName);
+    leaveConfirmation.validate();
     const fi = input.poll();
     if (fi.controllerName !== controllerName) {
       controllerName = fi.controllerName;
       setController(controllerName);
     }
     const menuWasOpen = menu.open;
-    if (fi.menuPressed && !menu.fullscreenTransition) menu.toggle();
-    if (menu.open) menu.navigate(fi.nav, frameDt);
+    if (leaveConfirmation.open) {
+      if (!menu.fullscreenTransition) {
+        if (fi.menuPressed) leaveConfirmation.cancel();
+        else leaveConfirmation.navigate(fi.nav);
+      }
+    } else {
+      if (fi.menuPressed && !menu.fullscreenTransition) menu.toggle();
+      if (menu.open) menu.navigate(fi.nav, frameDt);
+    }
     if (controlsReminderOpened) {
       // The menu callback ran after the frame's first poll. Re-read only car state
       // with its accept key/button consumed; keep held movement and discard UI edges.

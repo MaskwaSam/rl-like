@@ -48,7 +48,8 @@ export class Menu {
   context: MenuContext = { kind: 'none' };
   onPlay: (() => void) | null = null;
   onFreePlay: (() => void) | null = null;
-  onQuit: (() => void) | null = null;
+  onQuit: ((destination?: 'main' | 'multiplayer') => void) | null = null;
+  onScreenChanged: (() => void) | null = null;
   onSignOut: (() => void) | null = null;
   onHost: ((name: string) => void) | null = null;
   onJoin: ((name: string, code: string) => void) | null = null;
@@ -170,6 +171,7 @@ export class Menu {
     if (screen !== 'hidden') this.setFocus(this.panels[screen].focus);
     else blurTextField();
     this.heldDir = null;
+    this.onScreenChanged?.();
   }
 
   /** Menu button while playing opens the menu; inside the menu it backs out one level. */
@@ -215,7 +217,7 @@ export class Menu {
       }
     }
     if (nav.accept) this.activateFocused();
-    if (nav.back) this.back();
+    else if (nav.back) this.back();
   }
 
   // ---------------------------------------------------------------------------
@@ -385,8 +387,7 @@ export class Menu {
     } else if (c.kind === 'local' && !this.inviteOnly) {
       this.addButton(p, this.mainButtons, 'Resume Free Play', row++, 0, () => this.play()).classList.add('primary');
       this.addButton(p, this.mainButtons, 'Multiplayer', row++, 0, () => {
-        this.onQuit?.();
-        this.show('multiplayer');
+        this.onQuit?.('multiplayer');
       });
     } else if (c.kind === 'host' || c.kind === 'client') {
       if (c.inMatch) this.addButton(p, this.mainButtons, 'Resume Match', row++, 0, () => this.play()).classList.add('primary');
