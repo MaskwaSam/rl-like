@@ -10,8 +10,9 @@ import type { GameConfig } from '../sim/game';
 import type { CarInput } from '../input/types';
 import { ByteReader, ByteWriter, readInput, writeInput } from '../sim/state';
 
-export const PROTOCOL_VERSION = 2;
-export const MAX_PLAYERS = 8;
+export const PROTOCOL_VERSION = 3;
+export const MAX_TEAM_PLAYERS = 4;
+export const MAX_PLAYERS = MAX_TEAM_PLAYERS * 2;
 /** Car bodies to choose from; must match CAR_BODIES in render/cars.ts. Cosmetic only. */
 export const CAR_BODY_COUNT = 3;
 
@@ -28,23 +29,36 @@ export interface LobbyPlayer {
 }
 
 export interface MatchSettings {
+  /** Visual venue; optional for older peer hosts. */
+  arena?: number;
   /** 0 = unlimited. */
   matchSeconds: number;
 }
 
-export const DEFAULT_MATCH_SETTINGS: MatchSettings = { matchSeconds: 300 };
+export const DEFAULT_MATCH_SETTINGS: MatchSettings = { matchSeconds: 300, arena: 0 };
+
+export interface ServerRoomInfo {
+  code?: string;
+  teamSize: number;
+  expiresAt: number;
+  inviteUrl?: string;
+  canCreate: boolean;
+}
 
 export type CtrlMsg =
   | { t: 'hello'; name: string; version: number; dodgeDeadzone: number; body: number }
-  | { t: 'welcome'; slot: number }
+  | { t: 'welcome'; slot: number; owner?: boolean; server?: ServerRoomInfo }
   | { t: 'reject'; reason: string }
   /** Host is ready to receive the unreliable channel; the client creates it on receipt. */
   | { t: 'fastready' }
   | { t: 'lobby'; players: LobbyPlayer[]; settings: MatchSettings; inMatch: boolean }
   | { t: 'team'; team: Team }
+  | { t: 'notice'; reason: string }
   | { t: 'body'; body: number }
-  | { t: 'start'; config: GameConfig }
-  | { t: 'end' };
+  | { t: 'start'; config: GameConfig; epoch?: number }
+  | { t: 'end' }
+  | { t: 'room-command'; action: 'start' | 'end' | 'reset' | 'close' | 'rotate' }
+  | { t: 'settings'; matchSeconds?: number; arena?: number };
 
 export const enum Packet {
   Input = 1,

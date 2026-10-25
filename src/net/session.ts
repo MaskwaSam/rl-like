@@ -8,7 +8,7 @@ import { FREE_PLAY_CONFIG, Game, type BodyState } from '../sim/game';
 import { TICK_DT } from '../sim/rl';
 import { quantizeInput } from '../sim/state';
 import type { CarInput } from '../input/types';
-import type { LobbyPlayer, MatchSettings } from './protocol';
+import type { LobbyPlayer, MatchSettings, ServerRoomInfo } from './protocol';
 
 /** Where the renderer should draw one car this frame, and what its wheels / flame should do. */
 export interface CarRenderState {
@@ -36,6 +36,7 @@ export interface CarRenderState {
 }
 
 export interface LobbyState {
+  server?: ServerRoomInfo;
   code: string;
   players: LobbyPlayer[];
   mySlot: number;

@@ -1,17 +1,26 @@
+import './ui/presentation.css';
+import { MASKWA_ARENA, normalizeArena } from './arenas';
 import { CAR, UU } from './sim/rl';
 import { buildArenaGeometry } from './sim/arena';
 import { FREE_PLAY_CONFIG, Game, type Team } from './sim/game';
 import { Renderer } from './render/renderer';
+import { loadMaskwaArt } from './render/maskwa';
 import { FollowCamera } from './render/camera';
-import { InputManager } from './input/input';
+import { InputManager, keyName } from './input/input';
 import { EMPTY_INPUT } from './input/types';
 import { MATCH_LENGTHS, Menu, type MenuContext } from './ui/menu';
+import { MatchRetry, retryInputPressed } from './ui/match-retry';
+import { ControlsReminder } from './ui/controlsReminder';
+import { ControllerNotice } from './ui/controllerNotice';
+import { LeaveConfirmation } from './ui/leaveConfirmation';
 import { SoundManager } from './audio/sound';
 import { loadSettings, saveSettings } from './settings';
 import { buildLabel } from './build';
 import { LocalSession, type Session } from './net/session';
 import { HostSession } from './net/host';
 import { ClientSession } from './net/client';
+import { ServerRoomSession } from './net/server-session';
+import { accessState, roomApi, type RoomAdmission } from './access';
 import { describeError, loadIceConfig, testConnectivity, turnConfigured } from './net/transport';
 
 const app = document.getElementById('app')!;
@@ -30,9 +39,13 @@ const speedEl = document.getElementById('speed')!;
 const speedValueEl = speedEl.querySelector('.value')!;
 const boostFillEl = document.getElementById('boostFill') as unknown as SVGCircleElement;
 const boostValueEl = document.getElementById('boostValue')!;
+const retryEl = document.getElementById('matchRetry') as HTMLButtonElement;
+const retryLabelEl = document.getElementById('retryLabel')!;
+const bottomRightEl = document.getElementById('bottomright')!;
 
-const GAUGE_CIRCUMFERENCE = 2 * Math.PI * 56;
-boostFillEl.style.strokeDasharray = `${GAUGE_CIRCUMFERENCE}`;
+const GAUGE_FULL = 2 * Math.PI * 56;
+const GAUGE_CIRCUMFERENCE = GAUGE_FULL * 0.78;
+boostFillEl.style.strokeDasharray = `${GAUGE_CIRCUMFERENCE} ${GAUGE_FULL}`;
 /** uu/s -> km/h (1 uu = 1 cm). */
 const UU_S_TO_KMH = 0.036;
 /** Speed readout goes red only at the hard cap (within 10 uu/s of 2300, shown in km/h). */
@@ -62,6 +75,7 @@ function formatClock(seconds: number): string {
 async function main(): Promise<void> {
   console.info(`RL-like ${buildLabel()}`);
   const settings = loadSettings();
+  await loadMaskwaArt();
   // The arena is static: build its geometry once for the renderer, independent of any game.
   const arenaGeometry = buildArenaGeometry();
   const probe = await Game.create(FREE_PLAY_CONFIG); // also initialises the physics engine
@@ -70,11 +84,76 @@ async function main(): Promise<void> {
   const followCam = new FollowCamera(settings);
   const input = new InputManager(settings);
   const menu = new Menu(document.body, input, settings);
+  const controlsReminder = new ControlsReminder(document.body, input);
+  const controllerNotice = new ControllerNotice(document.body);
+  const leaveConfirmation = new LeaveConfirmation(
+    document.body, input, () => !!document.fullscreenElement || menu.fullscreenTransition,
+  );
+  let exitRequestVersion = 0;
+  const invalidateExit = () => {
+    exitRequestVersion++;
+    leaveConfirmation.invalidate();
+  };
+  let controlsReminderOpened = false;
+  const updatePlayHints = () => {
+    const hint = document.getElementById('resetHint')!;
+    const code = input.bindings.keyboard.reset;
+    hint.hidden = !code;
+    hint.querySelector('kbd')!.textContent = keyName(code);
+    document.getElementById('ballCamHintKey')!.textContent = keyName(input.bindings.keyboard.ballCam) || 'Unassigned';
+    document.getElementById('menuHintKey')!.textContent = keyName(input.bindings.keyboard.menu) || 'Unassigned';
+  };
+  menu.onBindingsChanged = updatePlayHints;
+  updatePlayHints();
+  const inviteOnly = accessState.access === 'invite';
+  menu.setInviteOnly(inviteOnly);
+  menu.setServerAccess(!inviteOnly);
   const sound = new SoundManager();
   // Relay credentials, if the deployment has any. Never blocks startup.
   const iceReady = loadIceConfig();
 
   let session: Session | null = null;
+  const retry = new MatchRetry();
+  const retryState = () => ({
+    session, game: session?.game ?? null, menuOpen: menu.open,
+    host: session instanceof HostSession || (session instanceof ServerRoomSession && session.lobby.isHost),
+    finished: session?.game?.phase === 'over',
+  });
+  const updateRetry = () => {
+    const state = retry.view(retryState(), performance.now());
+    retryEl.hidden = !state.visible;
+    retryEl.disabled = state.pending;
+    retryEl.setAttribute('aria-busy', String(state.pending));
+    retryLabelEl.textContent = state.pending ? 'Restarting…' : 'Retry';
+    bottomRightEl.classList.toggle('retry-mode', state.visible);
+    hudEl.classList.toggle('retry-visible', state.visible);
+    return state.visible;
+  };
+  const requestRetry = () => {
+    if (menu.fullscreenTransition) return;
+    // Re-read role, menu and match state here: hidden/disabled DOM is not an authorization guard.
+    if (retry.activate(retryState(), performance.now(), () => session!.resetMatch())) {
+      input.blockJumpUntilRelease();
+    }
+    updateRetry();
+  };
+  retryEl.addEventListener('click', requestRetry);
+  retryEl.addEventListener('keydown', (event) => {
+    // InputManager prevents native Space activation to avoid scrolling during gameplay.
+    if (event.code === 'Space' && !event.repeat) {
+      event.preventDefault();
+      event.stopPropagation();
+      requestRetry();
+    }
+  });
+
+  const selectedArena = () => normalizeArena(session && session.kind !== 'local'
+    ? session.game?.config.arena ?? session.lobby?.settings.arena
+    : settings.arena.style);
+  // The landing view celebrates Maskwa; saved choices and room venues still govern play.
+  const landingView = () => !session && menu.screen === 'main';
+  const displayedArena = () => landingView() ? MASKWA_ARENA : selectedArena();
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   // Debug handles for the browser console.
   const dbg = window as unknown as Record<string, unknown>;
@@ -90,7 +169,10 @@ async function main(): Promise<void> {
     saveSettings(settings);
     followCam.applyProjection(renderer.camera);
     renderer.setQuality(settings.graphics.quality);
+    renderer.setArena(displayedArena());
     sound.setVolume(settings.audio.volume);
+    sound.setMuted(settings.audio.muted);
+    menu.refreshAudioState();
     const localCar = session?.game?.cars.get(session.localId);
     if (localCar) localCar.dodgeDeadzone = settings.controls.dodgeDeadzone;
     if (session instanceof HostSession) {
@@ -100,14 +182,13 @@ async function main(): Promise<void> {
     // Car body: cosmetic, so it can change at any time; online it reaches everyone via the lobby.
     if (session instanceof LocalSession) session.body = settings.car.body;
     else if (session instanceof HostSession) session.setHostBody(settings.car.body);
-    else if (session instanceof ClientSession) session.setBody(settings.car.body);
+    else if (session instanceof ClientSession || session instanceof ServerRoomSession) session.setBody(settings.car.body);
   };
   applySettings();
   window.addEventListener('resize', () => followCam.applyProjection(renderer.camera));
 
   let controllerName: string | null = null;
   input.onControllerChange = (name) => {
-    controllerName = name;
     setController(name);
   };
   setController(null);
@@ -121,20 +202,38 @@ async function main(): Promise<void> {
     return { kind: session.kind, inMatch: !!session.lobby?.inMatch };
   };
   const refreshMenu = () => {
+    leaveConfirmation.validate();
+    updateRetry();
     menu.setContext(menuContext());
     menu.setLobby(session?.lobby ?? null);
+    const room = !!session && session.kind !== 'local';
+    menu.setArenaState(selectedArena(), !room || (!!session?.lobby?.isHost && !session.lobby.inMatch), room);
+    renderer.setArena(displayedArena());
+    if (session?.lobby && !session.lobby.inMatch && !session.game && !menu.open) menu.show('lobby');
   };
 
   const attach = (s: Session) => {
+    controllerNotice.reset();
+    invalidateExit();
     session = s;
     s.onLobbyChanged = refreshMenu;
     s.onMatchStarted = () => {
+      invalidateExit();
       refreshMenu();
       resetFrameTimers();
       menu.play();
     };
     s.onEnded = (reason) => {
-      if (session === s) session = null;
+      if (session !== s) return;
+      controllerNotice.reset();
+      invalidateExit();
+      if (inviteOnly && s instanceof ServerRoomSession) {
+        sessionStorage.setItem('car-access-notice', reason);
+        if (reason === 'Room opened in another tab.') sessionStorage.setItem('car-room-replaced', '1');
+        location.reload();
+        return;
+      }
+      if (session === s) { session = null; controlsReminder.hide(); }
       renderer.syncCars([], -1, 0);
       refreshMenu();
       menu.setMultiplayerStatus(reason);
@@ -145,6 +244,9 @@ async function main(): Promise<void> {
   };
 
   const endSession = () => {
+    controllerNotice.reset();
+    invalidateExit();
+    controlsReminder.hide();
     const s = session;
     session = null;
     if (s) {
@@ -156,21 +258,80 @@ async function main(): Promise<void> {
   };
 
   menu.onFreePlay = async () => {
+    if (inviteOnly) return;
     endSession();
     attach(await LocalSession.create());
     resetFrameTimers();
     menu.play();
   };
-  menu.onQuit = () => {
-    endSession();
-    menu.show('main');
+  let exitInFlight: Session | null = null;
+  const requestExit = (action: 'quit' | 'leave', destination: 'main' | 'multiplayer' = 'main') => {
+    const target = session;
+    if (!target || exitInFlight === target || leaveConfirmation.open ||
+        (action === 'quit') !== (target.kind === 'local')) return;
+    const screen = menu.screen;
+    const game = target.game;
+    const context = () => JSON.stringify([
+      target.kind, target instanceof ServerRoomSession, target.localId,
+      target.lobby?.code, target.lobby?.isHost, target.lobby?.inMatch, target.lobby?.status,
+    ]);
+    const token = context();
+    const requestVersion = ++exitRequestVersion;
+    const valid = () => exitRequestVersion === requestVersion && session === target && target.game === game && context() === token && menu.screen === screen;
+    const running = target.kind === 'local' || !!target.lobby?.inMatch;
+    const message = target.kind === 'local'
+      ? `This ends your Free Play session and returns to the ${destination === 'multiplayer' ? 'Multiplayer' : 'main'} menu.`
+      : target instanceof ServerRoomSession
+        ? 'This leaves the server room for you only. Close room is a separate owner action.'
+        : target.kind === 'host'
+          ? 'You are hosting this browser room. Leaving ends the room and disconnects everyone.'
+          : 'This disconnects you from the browser room. The other players can keep playing.';
+    controllerNotice.reset();
+    leaveConfirmation.show({
+      title: action === 'quit' ? 'Quit Free Play?' : 'Leave room?',
+      message,
+      action: action === 'quit' ? 'Quit to menu' : 'Leave room',
+      valid,
+      cancel: () => {
+        input.blockJumpUntilRelease();
+        // Share the same-frame resume guard used by the optional controls card.
+        controlsReminderOpened = true;
+        if (running) menu.play();
+        else menu.show(screen);
+      },
+      confirm: () => {
+        if (!valid()) return;
+        exitInFlight = target;
+        void (async () => {
+          try {
+            if (target instanceof ServerRoomSession) await roomApi('leave', {}).catch(() => {});
+            // A delayed response belongs only to the session that requested it.
+            if (!valid()) return;
+            endSession();
+            if (inviteOnly) { location.reload(); return; }
+            if (action === 'leave') menu.setMultiplayerStatus('');
+            menu.show(action === 'leave' ? 'multiplayer' : destination);
+          } finally {
+            if (exitInFlight === target) exitInFlight = null;
+          }
+        })();
+      },
+    });
   };
+  menu.onScreenChanged = () => {
+    invalidateExit();
+    controllerNotice.reset();
+  };
+  menu.onQuit = (destination) => requestExit('quit', destination);
+  menu.onSignOut = () => { endSession(); void roomApi('logout', {}).finally(() => location.reload()); };
   menu.onHost = async (name) => {
+    if (inviteOnly) return;
     endSession();
     menu.setMultiplayerStatus('Creating room…', true);
     try {
       await iceReady;
       const host = await HostSession.create(name);
+      host.setSettings({ arena: settings.arena.style });
       host.hostDodgeDeadzone = settings.controls.dodgeDeadzone;
       attach(host);
       menu.setMultiplayerStatus('');
@@ -180,6 +341,7 @@ async function main(): Promise<void> {
     }
   };
   menu.onJoin = async (name, code) => {
+    if (inviteOnly) return;
     endSession();
     menu.setMultiplayerStatus(`Joining ${code}…`, true);
     try {
@@ -192,33 +354,79 @@ async function main(): Promise<void> {
       menu.setMultiplayerStatus(`Could not join: ${describeError(err)}`);
     }
   };
-  menu.onLeaveRoom = () => {
-    endSession();
-    menu.setMultiplayerStatus('');
-    menu.show('multiplayer');
-  };
+  menu.onLeaveRoom = () => requestExit('leave');
   menu.onSwitchTeam = () => {
     if (session instanceof HostSession) session.setHostTeam(session.hostTeam === 'blue' ? 'orange' : 'blue');
-    else if (session instanceof ClientSession) {
+    else if (session instanceof ClientSession || session instanceof ServerRoomSession) {
       const me = session.lobby.players.find((p) => p.slot === session!.localId);
       session.requestTeam(me?.team === 'blue' ? 'orange' : 'blue');
     }
   };
   menu.onCycleMatchLength = () => {
+    if (session instanceof ServerRoomSession) {
+      const i = MATCH_LENGTHS.indexOf(session.lobby.settings.matchSeconds);
+      session.setMatchSeconds(MATCH_LENGTHS[(i + 1) % MATCH_LENGTHS.length]); return;
+    }
     if (!(session instanceof HostSession)) return;
     const i = MATCH_LENGTHS.indexOf(session.settings.matchSeconds);
     session.setSettings({ matchSeconds: MATCH_LENGTHS[(i + 1) % MATCH_LENGTHS.length] });
   };
+  menu.onSelectArena = (value) => {
+    const arena = normalizeArena(value);
+    if (session && session.kind !== 'local') {
+      if (!session.lobby?.isHost || session.lobby.inMatch) return;
+      if (session instanceof HostSession) session.setSettings({ arena });
+      else if (session instanceof ServerRoomSession) session.setArena(arena);
+    }
+    settings.arena.style = arena;
+    saveSettings(settings);
+    refreshMenu();
+  };
   menu.onStartMatch = () => {
+    if (session instanceof ServerRoomSession) session.command('start');
     if (session instanceof HostSession) void session.startMatch();
   };
   menu.onEndMatch = () => {
+    if (session instanceof ServerRoomSession) { session.command('end'); menu.show('lobby'); }
     if (session instanceof HostSession) {
       session.endMatch();
       refreshMenu();
       menu.show('lobby');
     }
   };
+
+  const joinServer = async (room: RoomAdmission, name: string) => {
+    endSession(); menu.setMultiplayerStatus('Joining room…', true);
+    try {
+      attach(await ServerRoomSession.create(room, name, settings.controls.dodgeDeadzone, settings.car.body));
+      menu.setMultiplayerStatus(''); menu.show('lobby');
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Could not join this room.';
+      if (inviteOnly) {
+        sessionStorage.setItem('car-access-notice', reason);
+        if (reason === 'Room opened in another tab.') sessionStorage.setItem('car-room-replaced', '1');
+        else await roomApi('leave', {}).catch(() => {});
+        location.reload();
+      } else menu.setMultiplayerStatus(reason);
+    }
+  };
+  menu.onCreateServerRoom = async (name, teamSize) => {
+    if (inviteOnly) return;
+    menu.setMultiplayerStatus('Creating room…', true);
+    try {
+      await joinServer(await roomApi<RoomAdmission>('rooms', { teamSize }), name);
+      if (session instanceof ServerRoomSession && session.lobby.isHost) session.setArena(settings.arena.style);
+    }
+    catch (error) { menu.setMultiplayerStatus(error instanceof Error ? error.message : 'Could not create room.'); }
+  };
+  menu.onJoinServerRoom = async (name, code) => {
+    if (inviteOnly) return;
+    menu.setMultiplayerStatus('Joining room…', true);
+    try { await joinServer(await roomApi<RoomAdmission>('join', { code }), name); }
+    catch (error) { menu.setMultiplayerStatus(error instanceof Error ? error.message : 'Could not join room.'); }
+  };
+  menu.onRotateInvite = () => { if (session instanceof ServerRoomSession) session.command('rotate'); };
+  menu.onCloseServerRoom = () => { if (session instanceof ServerRoomSession) session.command('close'); };
   /**
    * Report what this network allows. `host` means a direct path on this machine or LAN, `srflx`
    * means the public address found through STUN, `relay` means a TURN relay answered. Two players
@@ -248,12 +456,18 @@ async function main(): Promise<void> {
   };
 
   menu.onSettingsChanged = applySettings;
+  menu.onShowControlsReminder = () => {
+    controlsReminder.show();
+    controlsReminderOpened = true;
+  };
   menu.onPlay = () => {
     resetFrameTimers();
     input.blockJumpUntilRelease();
     sound.start(); // user gesture: safe to create the AudioContext
     if (session instanceof LocalSession) session.resume();
   };
+
+  refreshMenu();
 
   // --- Background ticking ----------------------------------------------------------
   // A hidden tab gets requestAnimationFrame and timers throttled to about once a second, which
@@ -338,24 +552,58 @@ async function main(): Promise<void> {
     last = now;
     lastFrameAt = now;
 
+    controlsReminder.update(!!session?.game && !menu.open, controllerName);
+    leaveConfirmation.validate();
     const fi = input.poll();
     if (fi.controllerName !== controllerName) {
       controllerName = fi.controllerName;
       setController(controllerName);
     }
-    if (fi.menuPressed) menu.toggle();
-    if (menu.open) menu.navigate(fi.nav, frameDt);
+    const menuWasOpen = menu.open;
+    if (leaveConfirmation.open) {
+      if (!menu.fullscreenTransition) {
+        if (fi.menuPressed) leaveConfirmation.cancel();
+        else leaveConfirmation.navigate(fi.nav);
+      }
+    } else {
+      if (fi.menuPressed && !menu.fullscreenTransition) menu.toggle();
+      if (menu.open) menu.navigate(fi.nav, frameDt);
+    }
+    if (controlsReminderOpened) {
+      // The menu callback ran after the frame's first poll. Re-read only car state
+      // with its accept key/button consumed; keep held movement and discard UI edges.
+      fi.car = input.poll().car;
+      fi.resetPressed = false;
+      fi.toggleCameraPressed = false;
+      fi.menuPressed = false;
+      fi.nav.accept = false;
+      fi.nav.back = false;
+      controlsReminderOpened = false;
+    }
+    const retryInput = updateRetry() && !menu.fullscreenTransition && retryInputPressed(menuWasOpen, fi.menuPressed, fi.nav.accept, fi.resetPressed);
+    if (retryInput) requestRetry();
 
     // Networked sessions keep running behind the menu; free play pauses.
-    session?.update(menu.open ? EMPTY_INPUT : fi.car, sessionDt(now), menu.open);
+    session?.update(menu.open || menu.fullscreenTransition ? EMPTY_INPUT : fi.car, sessionDt(now), menu.open);
 
+    updateRetry();
+    const game = session?.game ?? null;
+    const localCar = game?.cars.get(session!.localId) ?? null;
+    controllerNotice.update(fi.controllerName, !!game && !!localCar && !menu.open && !leaveConfirmation.open, now);
+    const stadiumClock = game && game.config.matchSeconds > 0
+      ? game.overtime ? `+${formatClock(game.overtimeElapsed)}` : formatClock(game.timeRemaining)
+      : 'FREE';
+    renderer.setScore(game?.score.blue ?? 0, game?.score.orange ?? 0, stadiumClock);
+
+    if (menu.open && menu.screen !== 'garage') {
+      renderer.setArena(displayedArena());
+      renderer.renderOverview(frameDt, landingView() && !reducedMotion.matches);
+    }
     if (menu.screen === 'garage') {
       const me = session?.lobby?.players.find((p) => p.slot === session!.localId);
       renderer.renderGarage(settings.car.body, me?.team ?? 'blue', frameDt);
     }
 
-    const game = session?.game ?? null;
-    const localCar = game?.cars.get(session!.localId) ?? null;
     if (menu.open || !session || !game || !localCar) {
       hudEl.hidden = true;
       return;
@@ -363,7 +611,7 @@ async function main(): Promise<void> {
     hudEl.hidden = false;
     const s = session;
 
-    if (fi.resetPressed) s.resetMatch();
+    if (fi.resetPressed && !retryInput && (game.phase !== 'over' || s.kind === 'local')) s.resetMatch();
     if (fi.toggleCameraPressed) {
       followCam.toggle();
       setCamMode(followCam.ballCam);
@@ -512,6 +760,8 @@ async function main(): Promise<void> {
       clockEl.classList.toggle('overtime', game.overtime);
     }
 
+    hudEl.classList.toggle('freeplay', s.kind === 'local');
+
     // Ping.
     const pingText = s.ping === null ? '' : `${Math.round(s.ping)} ms`;
     if (pingText !== lastPingText) {
@@ -525,7 +775,7 @@ async function main(): Promise<void> {
     const scoreText = `${game.score.blue}-${game.score.orange}`;
     if (scoreText !== lastScore) {
       lastScore = scoreText;
-      scoreEl.innerHTML = `<span class="blue">BLUE ${game.score.blue}</span> &nbsp;–&nbsp; <span class="orange">${game.score.orange} ORANGE</span>`;
+      scoreEl.innerHTML = `<span class="blue" aria-label="Blue ${game.score.blue}">${game.score.blue}</span><span class="score-label">CAR SOCCER</span><span class="orange" aria-label="Orange ${game.score.orange}">${game.score.orange}</span>`;
       if (game.lastGoal && scoreTotal > 0) {
         renderer.goalExplosion(game.lastGoal);
         const kmh = Math.round((game.lastGoalSpeed / UU) * UU_S_TO_KMH);
@@ -556,7 +806,7 @@ async function main(): Promise<void> {
       const winner: Team | null = game.score.blue === game.score.orange ? null : game.score.blue > game.score.orange ? 'blue' : 'orange';
       const myTeam = localCar.team;
       const title = winner === null ? 'DRAW' : winner === myTeam ? 'VICTORY' : 'DEFEAT';
-      const sub = s.kind === 'host' ? 'Open the menu to return to the lobby' : winner ? `${winner.toUpperCase()} wins` : '';
+      const sub = retryState().host ? 'Retry to play again · Menu for the lobby' : winner ? `${winner.toUpperCase()} wins` : '';
       showBanner(title, `${game.score.blue} – ${game.score.orange}`, sub, winner ? TEAM_COLOR[winner] : '#ffffff', 0);
     } else if (game.phase !== 'over' && lastPhase === 'over') {
       hideBanner();
@@ -568,11 +818,13 @@ async function main(): Promise<void> {
     tick(now);
     requestAnimationFrame(frame);
   };
-  requestAnimationFrame(frame);
   dbg.__step = tick;
+  if (accessState.room) await joinServer(accessState.room, menu.playerName);
+  requestAnimationFrame(frame);
 }
 
-main().catch((err) => {
+export const ready = main().catch((err) => {
   console.error(err);
   controllerEl.innerHTML = `<span class="warn">Failed to start: ${escapeHtml(String(err))}</span>`;
+  throw err;
 });

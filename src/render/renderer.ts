@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { normalizeArena } from '../arenas';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -10,6 +11,8 @@ import type { Team } from '../sim/car';
 import type { CarRenderState } from '../net/session';
 import { BlobShadow, Explosion, GLOW, Ribbon, glow, glowTexture } from './effects';
 import { TEAM_GLOW, TEAM_PAINT, buildCarMeshes, type CarMeshes } from './cars';
+import { Stadium } from './stadium';
+import { drawMaskwaBear } from './maskwa';
 
 const pA = new THREE.Vector3();
 const pB = new THREE.Vector3();
@@ -57,6 +60,15 @@ export class Renderer {
   readonly ballMesh: THREE.Mesh;
   private readonly container: HTMLElement;
   private readonly key: THREE.DirectionalLight;
+  private readonly hemisphere = new THREE.HemisphereLight(0xdbeaff, 0x526e41, 1.2);
+  private readonly fill = new THREE.DirectionalLight(0x9fc4ff, 0.65);
+  private readonly floodlights = new THREE.Group();
+  private floor!: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
+  private sky!: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  private arenaStyle = -1;
+  private readonly stadium = new Stadium();
+  private readonly overviewCamera = new THREE.PerspectiveCamera(65, 1, 0.1, 300);
+  private overviewAngle = Math.PI / 4;
   private composer: EffectComposer | null = null;
   private renderPass: RenderPass | null = null;
   private garage: Garage | null = null;
@@ -96,9 +108,9 @@ export class Renderer {
     container.appendChild(this.gl.domElement);
 
     this.camera = new THREE.PerspectiveCamera(75, container.clientWidth / container.clientHeight, 0.1, 300);
-    this.scene.background = new THREE.Color(0x05080f);
+    this.scene.background = new THREE.Color(0xa8c9ed);
 
-    // Reflections: a simple night stadium baked once into a prefiltered environment map, so the
+    // Reflections: a simple daylight stadium baked once into a prefiltered environment map, so the
     // car paint, glass and ball have floodlights to catch without any image files.
     const pmrem = new THREE.PMREMGenerator(this.gl);
     this.scene.environment = pmrem.fromScene(stadiumEnvironment(), 0.03).texture;
@@ -108,8 +120,8 @@ export class Renderer {
     // shadow shows beside it (straight overhead, the car hides it) and a cool fill for shape.
     // The ball casts no real shadow: its blob and ring stay straight below it, which is what
     // players read to judge where it is.
-    this.scene.add(new THREE.HemisphereLight(0xc4d8ff, 0x2c4a30, 0.6));
-    this.key = new THREE.DirectionalLight(0xfff6e8, 1.5);
+    this.scene.add(this.hemisphere);
+    this.key = new THREE.DirectionalLight(0xfff6e8, 1.8);
     this.key.position.set(30, 85, 20);
     this.scene.add(this.key, this.key.target);
     const reach = Math.max(ARENA.extentX, ARENA.extentY + ARENA.goalDepth) + 2;
@@ -123,18 +135,20 @@ export class Renderer {
     this.key.shadow.mapSize.set(2048, 2048);
     this.key.shadow.bias = -0.0004;
     this.key.shadow.normalBias = 0.03;
-    const fill = new THREE.DirectionalLight(0x9fc4ff, 0.35);
-    fill.position.set(-40, 30, -50);
-    this.scene.add(fill);
+    this.fill.position.set(-40, 30, -50);
+    this.scene.add(this.fill, this.floodlights);
 
     this.buildSky();
     this.buildFloodlights();
     this.buildArena(arena);
+    this.scene.add(this.stadium.group);
     this.buildPads(pads);
     this.ballMesh = this.buildBall();
     this.ballGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0x9fb8ff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.ballGlow.scale.setScalar(3.2);
     this.scene.add(this.ballGlow);
+    this.ballMesh.position.set(0, BALL.restZ, 0);
+    this.ballGlow.visible = false;
     this.scene.add(this.ballTrail.mesh);
     this.scene.add(this.ballShadow.mesh);
     // Ground marker: the ball's position straight down on the floor, shown at all times.
@@ -199,6 +213,39 @@ export class Renderer {
       this.composer = composer;
     }
     this.resize(this.container);
+  }
+
+  /** All venues use the same field/collision model. Switch static art, never game state. */
+  setArena(value: number): void {
+    const style = normalizeArena(value);
+    if (style === this.arenaStyle) return;
+    this.arenaStyle = style;
+    this.stadium.setStyle(style);
+    this.floodlights.visible = style !== 2;
+    this.sky.visible = style !== 2;
+    const colours = [
+      [0xa8c9ed, 0xdbeaff, 0x526e41, 0xfff6e8, 0x9fc4ff],
+      [0x080d23, 0x929de0, 0x162f3c, 0xc9e3ff, 0x916bdf],
+      [0x283039, 0xd4dde4, 0x333939, 0xffecd0, 0xb9cddd],
+      [0xB7D8EB, 0xDCEEFF, 0x345B4D, 0xFFF6E8, 0xA2D9F3],
+    ][style];
+    (this.scene.background as THREE.Color).setHex(colours[0]);
+    this.hemisphere.color.setHex(colours[1]);
+    this.hemisphere.groundColor.setHex(colours[2]);
+    this.hemisphere.intensity = style === 0 ? 1.2 : style === 1 ? 0.8 : 1.05;
+    this.key.color.setHex(colours[3]);
+    this.key.intensity = style === 0 ? 1.8 : style === 1 ? 1.5 : 1.8;
+    this.fill.color.setHex(colours[4]);
+    this.fill.intensity = style === 1 ? 0.9 : 0.65;
+    this.scene.environmentIntensity = style === 0 ? 1 : style === 1 ? 0.45 : 0.75;
+    // Dispose replaced maps; geometry, lighting, cars and shared textures remain allocated once.
+    this.floor.material.map?.dispose();
+    const p = this.floor.geometry.parameters;
+    this.floor.material.map = makeFieldTexture(p.width, p.height, style);
+    this.floor.material.roughness = style === 2 ? 0.65 : 0.82;
+    this.floor.material.metalness = style === 2 ? 0.12 : 0;
+    this.floor.material.needsUpdate = true;
+    this.buildSky(style);
   }
 
   /** The Object3D the camera follows, once that car exists. */
@@ -393,6 +440,31 @@ export class Renderer {
     else this.gl.render(this.scene, this.camera);
   }
 
+  /** Menu-only camera. Does not touch the player's chase-camera state or simulation. */
+  renderOverview(dt: number, orbit = false): void {
+    const cam = this.overviewCamera;
+    cam.aspect = this.container.clientWidth / this.container.clientHeight;
+    if (orbit) {
+      this.overviewAngle = (this.overviewAngle + dt * (2 * Math.PI / 240)) % (2 * Math.PI);
+      // Stay inside the stands for the full four-minute circuit of the rectangular field.
+      cam.position.set(38 * Math.sin(this.overviewAngle), 30, 44 * Math.cos(this.overviewAngle));
+      cam.lookAt(0, 3, 0);
+    } else {
+      cam.position.set(38, 30, 44);
+      cam.lookAt(-12, 3, -4);
+    }
+    cam.updateProjectionMatrix();
+    if (this.composer && this.renderPass) {
+      this.renderPass.camera = cam;
+      this.composer.render(dt);
+      this.renderPass.camera = this.camera;
+    } else this.gl.render(this.scene, cam);
+  }
+
+  setScore(blue: number, orange: number, clock: string): void {
+    this.stadium.setScore(blue, orange, clock);
+  }
+
   // ---------------------------------------------------------------------------
   // Arena
   // ---------------------------------------------------------------------------
@@ -403,13 +475,13 @@ export class Renderer {
     const floorW = arena.floorBox.hx * 2;
     const floorL = arena.floorBox.hz * 2;
     const floorGeo = new THREE.PlaneGeometry(floorW, floorL);
-    const floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: makeFieldTexture(floorW, floorL), roughness: 0.82, metalness: 0 }));
+    const floor = this.floor = new THREE.Mesh(floorGeo, new THREE.MeshStandardMaterial({ map: makeFieldTexture(floorW, floorL), roughness: 0.82, metalness: 0 }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    // Wall shell straight from the physics trimesh, opaque and single-sided: the normals point
-    // into the arena, so it is solid from inside and see-through when the camera is outside.
+    // Wall shell straight from the physics trimesh, single-sided: the normals point
+    // into the arena, so the safety mesh reads from inside without blocking the overview camera.
     // UVs: u runs along the wall (world x + z works for both wall directions), v is height.
     const shell = new THREE.BufferGeometry();
     shell.setAttribute('position', new THREE.BufferAttribute(arena.vertices, 3));
@@ -424,17 +496,16 @@ export class Renderer {
     shell.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     shell.setIndex(new THREE.BufferAttribute(arena.indices, 1));
     shell.computeVertexNormals();
-    // Glossy glass: low roughness so the floodlights and environment slide across it.
-    // The texture also drives a faint emissive, as if the stands behind the glass were lit.
     const wallTex = makeWallTexture();
-    // Shadows land on the floor only: the key light is overhead, so walls would rarely show one.
-    this.scene.add(new THREE.Mesh(shell, new THREE.MeshStandardMaterial({ map: wallTex, emissive: 0xffffff, emissiveMap: wallTex, emissiveIntensity: 0.45, roughness: 0.3, metalness: 0.15, side: THREE.FrontSide })));
-    this.scene.add(new THREE.LineSegments(new THREE.EdgesGeometry(shell, 20), new THREE.LineBasicMaterial({ color: 0x5f7fb5, transparent: true, opacity: 0.55 })));
+    // Transparent safety mesh above an opaque ramp: the new seating is visible through it.
+    // Geometry still matches every existing wall and ceiling collision surface.
+    this.scene.add(new THREE.Mesh(shell, new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.48,
+      metalness: 0.12, transparent: true, depthWrite: false, side: THREE.FrontSide })));
 
-    // A neon band along the walls at goal height, like the arena's glass line. Bright enough to bloom.
-    const band = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(ARENA.extentX * 2, ARENA.extentY * 2)), new THREE.LineBasicMaterial({ color: glow(0x8fb8ff, 3.5), transparent: true, opacity: 0.8 }));
+    // A subtle rail at the top of the opaque ramp, below the transparent safety mesh.
+    const band = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(ARENA.extentX * 2, ARENA.extentY * 2)), new THREE.LineBasicMaterial({ color: 0xb9d5f8, transparent: true, opacity: 0.45 }));
     band.rotation.x = -Math.PI / 2;
-    band.position.y = ARENA.goalHeight;
+    band.position.y = 3;
     this.scene.add(band);
 
     // Goal chambers straight from the physics mesh: quarter-pipe back, sloped roof, netting.
@@ -519,7 +590,7 @@ export class Renderer {
    */
   private buildFloodlights(): void {
     const lampGeo = new THREE.BoxGeometry(0.9, 0.9, 0.2);
-    const lampMat = new THREE.MeshBasicMaterial({ color: glow(0xfff4dc, 6) });
+    const lampMat = new THREE.MeshBasicMaterial({ color: glow(0xfff4dc, 2.5) });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a1f29, roughness: 0.6, metalness: 0.5 });
     const halo = glowTexture();
     const cols = 5;
@@ -527,7 +598,7 @@ export class Renderer {
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
         const bank = new THREE.Group();
-        bank.position.set(sx * (ARENA.extentX + 6), ARENA.height + 9, sz * (ARENA.extentY - 4));
+        bank.position.set(sx * (ARENA.extentX + 8), 41, sz * (ARENA.extentY - 10));
         bank.lookAt(0, 0, 0);
         const frame = new THREE.Mesh(new THREE.BoxGeometry(cols * 1.1 + 0.4, rows * 1.1 + 0.4, 0.3), frameMat);
         frame.position.z = -0.2;
@@ -539,54 +610,45 @@ export class Renderer {
             bank.add(lamp);
           }
         }
-        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, color: 0xfff0d0, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-        sprite.scale.setScalar(16);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: halo, color: 0xfff0d0, transparent: true, opacity: 0.08, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+        sprite.scale.setScalar(9);
         sprite.position.z = 0.5;
         bank.add(sprite);
-        this.scene.add(bank);
+        this.floodlights.add(bank);
       }
     }
   }
 
-  /** Night sky: a dithered gradient dome instead of a flat colour, one draw call. */
-  private buildSky(): void {
-    const cv = document.createElement('canvas');
-    cv.width = 64;
-    cv.height = 1024;
+  /** Original daytime dome, drawn once with soft clouds. */
+  private buildSky(style = 0): void {
+    const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 512;
     const ctx = cv.getContext('2d')!;
-    const img = ctx.createImageData(cv.width, cv.height);
-    // Horizon (bottom of the texture, v = 0) to zenith. Per-pixel noise breaks the 8-bit banding
-    // that a smooth near-black gradient shows on a sphere as concentric rings.
-    const stops: [number, [number, number, number]][] = [
-      [0, [30, 42, 70]],
-      [0.3, [16, 24, 44]],
-      [1, [4, 6, 12]],
-    ];
-    for (let y = 0; y < cv.height; y++) {
-      const v = 1 - y / (cv.height - 1);
-      let i = 0;
-      while (i < stops.length - 2 && v > stops[i + 1][0]) i++;
-      const [v0, c0] = stops[i];
-      const [v1, c1] = stops[i + 1];
-      const t = Math.min(1, Math.max(0, (v - v0) / (v1 - v0)));
-      for (let x = 0; x < cv.width; x++) {
-        const n = (Math.random() - 0.5) * 3;
-        const o = (y * cv.width + x) * 4;
-        img.data[o] = c0[0] + (c1[0] - c0[0]) * t + n;
-        img.data[o + 1] = c0[1] + (c1[1] - c0[1]) * t + n;
-        img.data[o + 2] = c0[2] + (c1[2] - c0[2]) * t + n;
-        img.data[o + 3] = 255;
+    const grad = ctx.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0, style === 1 ? '#05071b' : '#568ed2'); grad.addColorStop(0.55, style === 1 ? '#0c1533' : '#91b8e4'); grad.addColorStop(1, style === 1 ? '#303554' : '#d4e2ef');
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, 1024, 512);
+    let seed = 93;
+    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    for (let i = 0; style !== 1 && i < 48; i++) {
+      const x = rnd() * 1024, y = 45 + rnd() * 360;
+      ctx.save(); ctx.translate(x, y); ctx.scale(1.8 + rnd() * 2, 0.6 + rnd() * 0.3);
+      const cloud = ctx.createRadialGradient(0, 0, 4, 0, 0, 40);
+      cloud.addColorStop(0, 'rgba(255,255,255,.48)'); cloud.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = cloud; ctx.fillRect(-40, -40, 80, 80); ctx.restore();
+    }
+    if (style === 1) {
+      for (let i = 0; i < 250; i++) {
+        ctx.fillStyle = `rgba(213,223,255,${0.2 + rnd() * 0.65})`;
+        ctx.fillRect(rnd() * 1024, rnd() * 430, 1 + rnd() * 1.2, 1);
       }
     }
-    ctx.putImageData(img, 0, 0);
-    // A sprinkle of stars in the upper half.
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    for (let i = 0; i < 90; i++) ctx.fillRect(Math.random() * cv.width, Math.random() * 500, 1, 1);
-    const tex = new THREE.CanvasTexture(cv);
-    tex.colorSpace = THREE.SRGBColorSpace;
-    const sky = new THREE.Mesh(new THREE.SphereGeometry(240, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, depthWrite: false, fog: false }));
-    sky.renderOrder = -10;
-    this.scene.add(sky);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    if (this.sky) {
+      this.sky.material.map?.dispose(); this.sky.material.map = tex; this.sky.material.needsUpdate = true;
+      return;
+    }
+    const sky = this.sky = new THREE.Mesh(new THREE.SphereGeometry(240, 48, 24, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, depthWrite: false, fog: false }));
+    sky.renderOrder = -10; this.scene.add(sky);
   }
 
   // ---------------------------------------------------------------------------
@@ -635,7 +697,7 @@ export class Renderer {
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(BALL.visualRadius, 48, 32),
       // A little self-lit, like RL's ball under stadium lights, so it stays easy to find.
-      new THREE.MeshPhysicalMaterial({ map: ballTex, emissive: 0xffffff, emissiveMap: ballTex, emissiveIntensity: 0.3, roughness: 0.42, metalness: 0.1, clearcoat: 0.5, clearcoatRoughness: 0.2 }),
+      new THREE.MeshPhysicalMaterial({ map: ballTex, roughness: 0.3, metalness: 0.28, clearcoat: 0.7, clearcoatRoughness: 0.15 }),
     );
     this.scene.add(mesh);
     return mesh;
@@ -691,7 +753,7 @@ function buildGarage(environment: THREE.Texture | null): Garage {
 
 /**
  * What shiny surfaces reflect: a dome running from dark turf through a dimly lit ring of stands
- * to night sky, four floodlight banks and an overhead strip. The lamps are kept only a little
+ * to daylight sky, four floodlight banks and an overhead strip. The lamps are kept only a little
  * over BLOOM_THRESHOLD so a reflected light glints instead of flaring across the screen.
  */
 function stadiumEnvironment(): THREE.Scene {
@@ -699,9 +761,9 @@ function stadiumEnvironment(): THREE.Scene {
   const R = 50;
   const dome = new THREE.SphereGeometry(R, 48, 24);
   const pos = dome.attributes.position;
-  const sky = new THREE.Color(0x0b1224);
-  const stands = new THREE.Color(0x3a4460);
-  const turf = new THREE.Color(0x1d3a22);
+  const sky = new THREE.Color(0xa1c7ef);
+  const stands = new THREE.Color(0x8c99ab);
+  const turf = new THREE.Color(0x426934);
   const c = new THREE.Color();
   const colors = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
@@ -730,13 +792,13 @@ function stadiumEnvironment(): THREE.Scene {
 }
 
 /**
- * Neon frame around a goal mouth: two posts and a crossbar in the team colour, bright enough to
+ * Team-coloured frame around a goal mouth: two posts and a crossbar in the team colour, bright enough to
  * bloom. Set half into the back wall at the edge of the opening, so it never narrows the goal.
  */
 function goalFrame(color: number, side: 1 | -1): THREE.Group {
   const group = new THREE.Group();
-  const mat = new THREE.MeshBasicMaterial({ color: glow(color, 3) });
-  const t = 0.3; // bar thickness
+  const mat = new THREE.MeshBasicMaterial({ color: glow(color, 1.4) });
+  const t = 0.18; // purely visual; posts stay outside the unchanged goal collision mouth
   const w = ARENA.goalHalfWidth;
   const h = ARENA.goalHeight;
   for (const s of [-1, 1]) {
@@ -788,7 +850,7 @@ function makeNameplate(name: string, team: Team): THREE.Sprite {
 }
 
 /** Static field texture: turf stripes, RL-style markings, boost pad rings. Drawn once, in the plane's metres. */
-function makeFieldTexture(fieldW: number, fieldL: number): THREE.Texture {
+function makeFieldTexture(fieldW: number, fieldL: number, style = 0): THREE.Texture {
   const W = 2048;
   const Hpx = Math.round((W * fieldL) / fieldW);
   const cv = document.createElement('canvas');
@@ -801,12 +863,21 @@ function makeFieldTexture(fieldW: number, fieldL: number): THREE.Texture {
   const zToPx = (z: number) => Hpx / 2 - z * sz;
 
   // Turf with mowing stripes.
-  ctx.fillStyle = '#1c5a2d';
+  ctx.fillStyle = style === 2 ? '#525f66' : style === 1 ? '#214743' : style === 3 ? '#315B50' : '#406a37';
   ctx.fillRect(0, 0, W, Hpx);
   const stripeM = 6.4;
-  for (let z = -ARENA.extentY; z < ARENA.extentY; z += stripeM * 2) {
+  for (let z = -ARENA.extentY; style !== 2 && z < ARENA.extentY; z += stripeM * 2) {
     ctx.fillStyle = 'rgba(255,255,255,0.075)';
     ctx.fillRect(0, zToPx(z + stripeM), W, stripeM * sz);
+  }
+  if (style === 2) {
+    ctx.strokeStyle = 'rgba(12,22,29,0.4)'; ctx.lineWidth = 2;
+    for (let x = -fieldW / 2; x <= fieldW / 2; x += 8) {
+      ctx.beginPath(); ctx.moveTo(xToPx(x), 0); ctx.lineTo(xToPx(x), Hpx); ctx.stroke();
+    }
+    for (let z = -fieldL / 2; z <= fieldL / 2; z += 8) {
+      ctx.beginPath(); ctx.moveTo(0, zToPx(z)); ctx.lineTo(W, zToPx(z)); ctx.stroke();
+    }
   }
   // Team halves, faintly tinted. The floor plane is laid flat with its top edge at world -z (the
   // blue goal), so the top half of the canvas is blue's end; fading toward the half line.
@@ -820,6 +891,19 @@ function makeFieldTexture(fieldW: number, fieldL: number): THREE.Texture {
     ctx.fillStyle = g;
     ctx.fillRect(0, Math.min(y0, y1), W, Hpx / 2);
   }
+  // Distinct team goal zones, like the observed daylight pitch. Keep the midfield green.
+  for (const [y, color] of [[0, '#2d58bf'], [Hpx, '#ac632e']] as const) {
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.ellipse(W / 2, y, 28 * sx, 25 * sz, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.save(); ctx.clip();
+    for (let x = 0; x < W; x += 5 * sx) {
+      ctx.fillStyle = 'rgba(255,255,255,.075)'; ctx.fillRect(x, 0, 2.5 * sx, Hpx);
+    }
+    ctx.restore();
+  }
+  for (const [x, color] of [[-22, '#3f80e5'], [22, '#d88b47']] as const) {
+    ctx.fillStyle = color; ctx.fillRect(xToPx(x), Hpx * 0.14, 0.5 * sx, Hpx * 0.72);
+  }
   // Fine grain so the turf does not look like flat paint up close.
   let seed = 11;
   for (let i = 0; i < 60000; i++) {
@@ -831,7 +915,7 @@ function makeFieldTexture(fieldW: number, fieldL: number): THREE.Texture {
     ctx.fillRect(x, y, 2, 2);
   }
   // Goal areas darker.
-  ctx.fillStyle = '#17332a';
+  ctx.fillStyle = style === 2 ? '#26343e' : '#17332a';
   ctx.fillRect(xToPx(-ARENA.goalHalfWidth), zToPx(ARENA.extentY + ARENA.goalDepth), ARENA.goalHalfWidth * 2 * sx, ARENA.goalDepth * sz);
   ctx.fillRect(xToPx(-ARENA.goalHalfWidth), zToPx(-ARENA.extentY), ARENA.goalHalfWidth * 2 * sx, ARENA.goalDepth * sz);
 
@@ -882,6 +966,20 @@ function makeFieldTexture(fieldW: number, fieldL: number): THREE.Texture {
   ctx.fillStyle = white;
   ctx.fill();
 
+  if (style === 3) {
+    // Printed midfield artwork and school-name touchlines, with all physics markings intact.
+    drawMaskwaBear(ctx, xToPx(-11), zToPx(11), 22 * sx, 22 * sz);
+    ctx.save(); ctx.translate(xToPx(0), zToPx(-15.5));
+    ctx.textAlign = 'center'; ctx.fillStyle = '#FFFFFF'; ctx.font = `bold ${3.6 * sx}px sans-serif`;
+    ctx.fillText('MASKWA', 0, 0); ctx.restore();
+    for (const side of [-1, 1]) {
+      // Keep the larger lettering inboard of the side boost-pad rings.
+      ctx.save(); ctx.translate(xToPx(side * (ARENA.extentX - 9)), zToPx(0)); ctx.rotate(side * Math.PI / 2);
+      ctx.textAlign = 'center'; ctx.fillStyle = '#FFFFFF'; ctx.font = `bold ${2 * sx}px sans-serif`;
+      ctx.fillText('MASKWACIS CREE HIGH SCHOOL', 0, 0); ctx.restore();
+    }
+  }
+
   // Goal boxes and penalty arcs.
   for (const s of [-1, 1]) {
     const depth = 14;
@@ -918,108 +1016,31 @@ function makeFieldTexture(fieldW: number, fieldL: number): THREE.Texture {
   return tex;
 }
 
-/**
- * Static wall texture: glass with a hexagon mesh (RL's arena glass) over a baked stadium behind it:
- * dark field-level band, three tiers of seating rendered as coloured speckle, roof structure at the
- * top, a light rail at goal height. Tiles along u.
- */
+/** Original safety mesh: opaque lower ramp, clear net above it. */
 function makeWallTexture(): THREE.Texture {
-  const W = 512;
-  const H = 1024;
-  const cv = document.createElement('canvas');
-  cv.width = W;
-  cv.height = H;
+  const cv = document.createElement('canvas'); cv.width = 512; cv.height = 1024;
   const ctx = cv.getContext('2d')!;
-  // v = 0 at the floor is the bottom of the canvas.
-  const yPx = (frac: number) => H - frac * H;
-  const grad = ctx.createLinearGradient(0, H, 0, 0);
-  grad.addColorStop(0, '#1b2538');
-  grad.addColorStop(0.2, '#141c2c');
-  grad.addColorStop(0.75, '#101625');
-  grad.addColorStop(1, '#070a12');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-
-  // Seating tiers behind the glass: speckled crowd in muted colours, separated by walkways.
-  let seed = 7;
-  const rnd = () => {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-    return seed / 0x7fffffff;
-  };
-  const tiers: [number, number][] = [
-    [0.22, 0.36],
-    [0.42, 0.56],
-    [0.62, 0.74],
-  ];
-  // Soft, low-contrast speckle: it should read as a distant crowd, not as noise up close.
-  const palette = ['rgba(120,132,160,0.35)', 'rgba(100,110,140,0.3)', 'rgba(150,160,185,0.3)', 'rgba(160,130,110,0.28)', 'rgba(90,100,125,0.3)'];
-  for (const [lo, hi] of tiers) {
-    ctx.fillStyle = '#121a2a';
-    ctx.fillRect(0, yPx(hi), W, (hi - lo) * H);
-    for (let y = yPx(hi) + 6; y < yPx(lo) - 6; y += 10) {
-      for (let x = 0; x < W; x += 9) {
-        if (rnd() < 0.7) {
-          ctx.fillStyle = palette[Math.floor(rnd() * palette.length)];
-          ctx.fillRect(x + rnd() * 3, y + rnd() * 3, 5, 5);
-        }
-      }
-    }
-    // Walkway rail above each tier.
-    ctx.fillStyle = 'rgba(180,200,235,0.18)';
-    ctx.fillRect(0, yPx(hi) - 3, W, 3);
-  }
-  // Roof structure near the top.
-  ctx.strokeStyle = 'rgba(120,140,180,0.25)';
-  ctx.lineWidth = 6;
-  for (let x = 0; x <= W; x += W / 4) {
-    ctx.beginPath();
-    ctx.moveTo(x, yPx(0.78));
-    ctx.lineTo(x + W / 8, yPx(1));
-    ctx.moveTo(x, yPx(0.78));
-    ctx.lineTo(x - W / 8, yPx(1));
-    ctx.stroke();
-  }
-
-  // Glass: hexagon mesh over everything, slightly brighter near the floor where the glass is lit.
-  const r = 30;
-  const dx = r * Math.sqrt(3);
-  const dy = r * 1.5;
-  ctx.lineWidth = 2;
-  let row = 0;
-  for (let y = H + r; y > -r; y -= dy, row++) {
-    for (let x = row % 2 ? dx / 2 : 0; x < W + dx; x += dx) {
-      const frac = 1 - y / H;
-      ctx.strokeStyle = `rgba(160,190,240,${(0.16 - frac * 0.1).toFixed(3)})`;
+  ctx.clearRect(0, 0, 512, 1024);
+  const rampY = 1024 * (1 - 2.6 / ARENA.height);
+  const base = ctx.createLinearGradient(0, rampY, 0, 1024);
+  base.addColorStop(0, '#a6bac8'); base.addColorStop(1, '#536675');
+  ctx.fillStyle = base; ctx.fillRect(0, rampY, 512, 1024 - rampY);
+  ctx.fillStyle = '#e0e8ed'; ctx.fillRect(0, rampY, 512, 5);
+  ctx.strokeStyle = 'rgba(221,234,245,.2)'; ctx.lineWidth = 1.2;
+  const r = 28, dx = r * Math.sqrt(3), dy = r * 1.5;
+  for (let row = 0, y = -r; y < rampY; row++, y += dy) {
+    for (let x = row % 2 ? dx / 2 : 0; x < 512 + dx; x += dx) {
       ctx.beginPath();
       for (let k = 0; k < 6; k++) {
-        const a = (Math.PI / 3) * k + Math.PI / 6;
-        const px = x + r * Math.cos(a);
-        const py = y + r * Math.sin(a);
-        if (k === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+        const a = k * Math.PI / 3 + Math.PI / 6;
+        const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+        if (!k) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       }
-      ctx.closePath();
-      ctx.stroke();
+      ctx.closePath(); ctx.stroke();
     }
   }
-  // Glass tint reflections: faint diagonal sheen.
-  const sheen = ctx.createLinearGradient(0, H, W, 0);
-  sheen.addColorStop(0, 'rgba(255,255,255,0)');
-  sheen.addColorStop(0.5, 'rgba(255,255,255,0.045)');
-  sheen.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = sheen;
-  ctx.fillRect(0, 0, W, H);
-  // Rail at goal height and the glow strip near the ceiling curve.
-  const goalFrac = ARENA.goalHeight / ARENA.height;
-  ctx.fillStyle = 'rgba(143,184,255,0.45)';
-  ctx.fillRect(0, yPx(goalFrac) - 4, W, 8);
-  ctx.fillStyle = 'rgba(255,179,71,0.22)';
-  ctx.fillRect(0, yPx(0.78) - 5, W, 10);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = THREE.RepeatWrapping;
-  tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.anisotropy = 4;
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.RepeatWrapping; tex.anisotropy = 4;
   return tex;
 }
 
@@ -1047,8 +1068,8 @@ function makeBallTexture(): THREE.Texture {
       }
       ctx.closePath();
       // Every few panels darker, like the ball's pattern.
-      const h = (Math.round(x / dx) * 7 + row * 3) % 11;
-      ctx.fillStyle = h < 2 ? '#6b7683' : h < 4 ? '#aeb8c4' : '#d6dce3';
+      const h = (Math.round(x / dx) * 7 + row * 3 + 22) % 11;
+      ctx.fillStyle = h < 3 ? '#26374d' : h < 5 ? '#657989' : '#e2e8eb';
       ctx.fill();
       ctx.strokeStyle = '#3d4753';
       ctx.lineWidth = 3;

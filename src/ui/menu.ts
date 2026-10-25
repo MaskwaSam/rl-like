@@ -3,9 +3,12 @@ import type { FrameInput } from '../input/types';
 import { CAR_BODIES } from '../render/cars';
 import { CAMERA_DEFS, CONTROL_DEFS, DEFAULT_SETTINGS, GRAPHICS_DEFS, getSetting, setSetting, type SettingDef, type Settings } from '../settings';
 import type { LobbyState } from '../net/session';
+import { MAX_PLAYERS, MAX_TEAM_PLAYERS } from '../net/protocol';
+import { teamHasSpace } from '../net/roster';
 import { buildLabel } from '../build';
+import { ARENAS, normalizeArena } from '../arenas';
 
-export type MenuScreen = 'main' | 'multiplayer' | 'lobby' | 'settings' | 'controls' | 'camera' | 'gameplay' | 'graphics' | 'garage' | 'hidden';
+export type MenuScreen = 'main' | 'multiplayer' | 'lobby' | 'settings' | 'controls' | 'camera' | 'gameplay' | 'graphics' | 'garage' | 'arenas' | 'hidden';
 type PanelId = Exclude<MenuScreen, 'hidden'>;
 
 /** What the menu is sitting on top of. Decides which main-menu buttons exist. */
@@ -45,16 +48,24 @@ export class Menu {
   context: MenuContext = { kind: 'none' };
   onPlay: (() => void) | null = null;
   onFreePlay: (() => void) | null = null;
-  onQuit: (() => void) | null = null;
+  onQuit: ((destination?: 'main' | 'multiplayer') => void) | null = null;
+  onScreenChanged: (() => void) | null = null;
+  onSignOut: (() => void) | null = null;
   onHost: ((name: string) => void) | null = null;
   onJoin: ((name: string, code: string) => void) | null = null;
   onTestConnection: (() => void) | null = null;
+  onCreateServerRoom: ((name: string, teamSize: 1 | 2 | 3 | 4) => void) | null = null;
+  onJoinServerRoom: ((name: string, code: string) => void) | null = null;
+  onRotateInvite: (() => void) | null = null;
+  onCloseServerRoom: (() => void) | null = null;
   onLeaveRoom: (() => void) | null = null;
   onSwitchTeam: (() => void) | null = null;
   onCycleMatchLength: (() => void) | null = null;
   onStartMatch: (() => void) | null = null;
   onEndMatch: (() => void) | null = null;
+  onSelectArena: ((arena: number) => void) | null = null;
   onBindingsChanged: (() => void) | null = null;
+  onShowControlsReminder: (() => void) | null = null;
   onSettingsChanged: (() => void) | null = null;
 
   private readonly root: HTMLElement;
@@ -67,6 +78,30 @@ export class Menu {
   private mpBusy = false;
   private nameInput!: HTMLInputElement;
   private codeInput!: HTMLInputElement;
+  private serverCodeInput!: HTMLInputElement;
+  private serverTeamSize: 1 | 2 | 3 | 4 = 2;
+  private serverCanCreate = false;
+  private inviteOnly = false;
+  private serverCreateButton!: HTMLButtonElement;
+  private serverModeButtons: HTMLButtonElement[] = [];
+  private serverOptionsVisible = false;
+  private serverSection!: HTMLElement;
+  private serverToggle!: HTMLButtonElement;
+  private serverToggleState!: HTMLElement;
+  private multiplayerItems: Item[] = [];
+  private lobbyNotice = '';
+  private selectedArena = 0;
+  private arenaCanSelect = false;
+  private arenaRoom = false;
+  private fullscreenBusy = false;
+  private fullscreenGuardUntil = 0;
+  private fullscreenNotice = '';
+  private fullscreenButton!: HTMLButtonElement;
+  private fullscreenHint!: HTMLElement;
+  private muteButton!: HTMLButtonElement;
+  private controlsReminderButton!: HTMLButtonElement;
+  private controlsReminderHint!: HTMLElement;
+
 
   constructor(
     container: HTMLElement,
@@ -83,12 +118,25 @@ export class Menu {
     this.buildSliders('gameplay', 'Gameplay', CONTROL_DEFS, 'settings');
     this.buildSliders('graphics', 'Graphics', GRAPHICS_DEFS, 'settings');
     this.buildGarage();
+    this.buildArenas();
     // Build stamp, visible on every menu screen: quote it when reporting something.
     const version = el('div', 'build-stamp');
     version.textContent = buildLabel();
     version.title = 'Build identifier — include this when reporting a problem';
     this.root.appendChild(version);
     container.appendChild(this.root);
+    document.addEventListener('fullscreenchange', () => {
+      this.fullscreenNotice = '';
+      this.guardFullscreenInput();
+      this.renderFullscreen();
+    });
+    document.addEventListener('visibilitychange', () => this.renderFullscreen());
+    window.addEventListener('keydown', (event) => {
+      if (event.code !== 'Escape' || (!document.fullscreenElement && !this.fullscreenTransition)) return;
+      // Leave the browser's Escape default intact, but do not also resume the game.
+      event.stopPropagation();
+      this.guardFullscreenInput();
+    }, true);
     this.show('main');
   }
 
@@ -96,24 +144,34 @@ export class Menu {
     return this.screen !== 'hidden';
   }
 
+  get fullscreenTransition(): boolean {
+    return this.fullscreenBusy || performance.now() < this.fullscreenGuardUntil;
+  }
+
   get playerName(): string {
     return this.nameInput.value.trim() || 'Player';
   }
 
   show(screen: MenuScreen): void {
+    if (screen === 'multiplayer' && this.inviteOnly) screen = this.lobbyState ? 'lobby' : 'main';
     if (this.capturingCell) this.cancelCapture();
+    if (screen === 'arenas' && (this.screen === 'main' || this.screen === 'lobby')) this.panels.arenas.parent = this.screen;
     this.screen = screen;
     this.root.hidden = screen === 'hidden';
     // The Garage shows the car preview behind a see-through menu.
     this.root.classList.toggle('garage', screen === 'garage');
+    this.root.classList.toggle('arena-screen', screen === 'arenas');
+    this.root.classList.toggle('main-screen', screen === 'main');
     for (const [id, p] of Object.entries(this.panels) as [PanelId, Panel][]) p.el.hidden = id !== screen;
     if (screen === 'main') this.renderMain();
     if (screen === 'multiplayer') this.renderMultiplayer();
     if (screen === 'lobby') this.renderLobby();
     if (screen === 'garage') this.renderGarage();
+    if (screen === 'arenas') this.renderArenas();
     if (screen !== 'hidden') this.setFocus(this.panels[screen].focus);
     else blurTextField();
     this.heldDir = null;
+    this.onScreenChanged?.();
   }
 
   /** Menu button while playing opens the menu; inside the menu it backs out one level. */
@@ -143,7 +201,7 @@ export class Menu {
 
   /** Feed navigation every frame while open. */
   navigate(nav: FrameInput['nav'], dt: number): void {
-    if (this.screen === 'hidden' || this.input.capturing) return;
+    if (this.screen === 'hidden' || this.input.capturing || this.fullscreenTransition) return;
     const dir = nav.upHeld ? 'up' : nav.downHeld ? 'down' : nav.leftHeld ? 'left' : nav.rightHeld ? 'right' : null;
     if (dir !== this.heldDir) {
       this.heldDir = dir;
@@ -159,7 +217,7 @@ export class Menu {
       }
     }
     if (nav.accept) this.activateFocused();
-    if (nav.back) this.back();
+    else if (nav.back) this.back();
   }
 
   // ---------------------------------------------------------------------------
@@ -168,11 +226,13 @@ export class Menu {
 
   setContext(ctx: MenuContext): void {
     this.context = ctx;
+    this.renderControlsReminderAction();
     if (this.screen === 'main') this.renderMain();
     if (this.screen === 'lobby') this.renderLobby();
   }
 
   setLobby(state: LobbyState | null): void {
+    if (state?.code !== this.lobbyState?.code) this.lobbyNotice = '';
     this.lobbyState = state;
     if (this.screen === 'lobby') this.renderLobby();
   }
@@ -181,6 +241,30 @@ export class Menu {
     this.mpStatus = text;
     this.mpBusy = busy;
     if (this.screen === 'multiplayer') this.renderMultiplayer();
+  }
+
+  /** Password-authorized players may create rooms; invite-only guests may join. */
+  setServerAccess(canCreate: boolean): void {
+    this.serverCanCreate = canCreate;
+    this.renderMultiplayer();
+  }
+
+  /** An invite-only grant is scoped to the room already joined by the session. */
+  setInviteOnly(value: boolean): void {
+    this.inviteOnly = value;
+    if (this.screen === 'multiplayer' && value) this.show(this.lobbyState ? 'lobby' : 'main');
+    if (this.screen === 'main') this.renderMain();
+  }
+
+  /** Arena authority and selection come from the active session, never local menu settings. */
+  setArenaState(arena: number, canSelect: boolean, room: boolean): void {
+    const selected = normalizeArena(arena);
+    if (selected === this.selectedArena && canSelect === this.arenaCanSelect && room === this.arenaRoom) return;
+    this.selectedArena = selected;
+    this.arenaCanSelect = canSelect;
+    this.arenaRoom = room;
+    if (this.screen === 'arenas') this.renderArenas();
+    if (this.screen === 'lobby') this.renderLobby();
   }
 
   private canResume(): boolean {
@@ -238,6 +322,8 @@ export class Menu {
   private activateFocused(): void {
     const p = this.panel;
     if (!p || p.items.length === 0) return;
+    const target = p.items[p.focus].el;
+    if (target instanceof HTMLButtonElement && target.disabled) return;
     p.items[p.focus].activate?.();
   }
 
@@ -253,9 +339,10 @@ export class Menu {
   }
 
   private addButton(panel: Panel, parentEl: HTMLElement, text: string, row: number, col: number, onClick: () => void): HTMLButtonElement {
-    const b = button(text, onClick);
+    const activate = () => { if (!this.fullscreenTransition) onClick(); };
+    const b = button(text, activate);
     parentEl.appendChild(b);
-    panel.items.push({ el: b, row, col, activate: onClick });
+    panel.items.push({ el: b, row, col, activate });
     return b;
   }
 
@@ -268,12 +355,16 @@ export class Menu {
   private buildMain(): void {
     const p = this.addPanel('main', 'hidden', '');
     const title = p.el.querySelector('.menu-title')!;
-    title.innerHTML = 'RL<span class="accent">-</span>like';
+    title.textContent = 'CAR SOCCER';
+    p.el.classList.add('main-panel');
     const sub = el('div', 'menu-subtitle');
-    sub.textContent = 'Browser car soccer';
+    sub.textContent = 'Rocket-powered car soccer';
     title.after(sub);
     this.mainButtons = el('div', 'menu-stack');
     p.el.appendChild(this.mainButtons);
+    this.fullscreenHint = el('p', 'menu-hint fullscreen-hint');
+    this.fullscreenHint.setAttribute('role', 'status');
+    p.el.appendChild(this.fullscreenHint);
     const hint = el('p', 'menu-hint');
     hint.innerHTML =
       '<span class="btn-glyph">Esc</span> / <span class="btn-glyph">Start</span> opens this menu during play. ' +
@@ -290,26 +381,88 @@ export class Menu {
     p.items = [];
     let row = 0;
     const c = this.context;
-    if (c.kind === 'none') {
+    if (c.kind === 'none' && !this.inviteOnly) {
       this.addButton(p, this.mainButtons, 'Free Play', row++, 0, () => this.onFreePlay?.()).classList.add('primary');
       this.addButton(p, this.mainButtons, 'Multiplayer', row++, 0, () => this.show('multiplayer'));
-    } else if (c.kind === 'local') {
+    } else if (c.kind === 'local' && !this.inviteOnly) {
       this.addButton(p, this.mainButtons, 'Resume Free Play', row++, 0, () => this.play()).classList.add('primary');
       this.addButton(p, this.mainButtons, 'Multiplayer', row++, 0, () => {
-        this.onQuit?.();
-        this.show('multiplayer');
+        this.onQuit?.('multiplayer');
       });
-    } else {
+    } else if (c.kind === 'host' || c.kind === 'client') {
       if (c.inMatch) this.addButton(p, this.mainButtons, 'Resume Match', row++, 0, () => this.play()).classList.add('primary');
       const lobbyBtn = this.addButton(p, this.mainButtons, 'Lobby', row++, 0, () => this.show('lobby'));
       if (!c.inMatch) lobbyBtn.classList.add('primary');
     }
+    this.addButton(p, this.mainButtons, 'Arenas', row++, 0, () => this.show('arenas'));
     this.addButton(p, this.mainButtons, 'Garage', row++, 0, () => this.show('garage'));
     this.addButton(p, this.mainButtons, 'Settings', row++, 0, () => this.show('settings'));
+    this.addButton(p, this.mainButtons, 'Controls', row++, 0, () => this.show('controls'));
+    this.fullscreenButton = this.addButton(p, this.mainButtons, 'Fullscreen', row++, 0, () => this.toggleFullscreen());
+    this.renderFullscreen();
+    this.muteButton = this.addButton(p, this.mainButtons, '', row++, 0, () => {
+      this.settings.audio.muted = !this.settings.audio.muted;
+      this.refreshAudioState();
+      this.onSettingsChanged?.();
+    });
+    this.refreshAudioState();
     if (c.kind === 'local') this.addButton(p, this.mainButtons, 'Quit to Menu', row++, 0, () => this.onQuit?.()).classList.add('danger');
     if (c.kind === 'host' || c.kind === 'client') this.addButton(p, this.mainButtons, 'Leave Room', row++, 0, () => this.onLeaveRoom?.()).classList.add('danger');
+    if (!this.inviteOnly) this.addButton(p, this.mainButtons, 'Sign out', row++, 0, () => this.onSignOut?.()).classList.add('subtle');
     p.focus = Math.min(focus, p.items.length - 1);
     if (this.screen === 'main') this.setFocus(p.focus);
+  }
+
+  private guardFullscreenInput(): void {
+    this.fullscreenGuardUntil = performance.now() + 250;
+    this.input.blockJumpUntilRelease();
+  }
+
+  /** Reflect settings changes (including resets) without rebuilding the focused button. */
+  refreshAudioState(): void {
+    this.muteButton.textContent = this.settings.audio.muted ? 'Unmute sound' : 'Mute sound';
+    this.muteButton.setAttribute('aria-pressed', String(this.settings.audio.muted));
+  }
+
+  private renderFullscreen(): void {
+    const active = !!document.fullscreenElement;
+    const supported = active
+      ? typeof document.exitFullscreen === 'function'
+      : typeof document.documentElement.requestFullscreen === 'function' && document.fullscreenEnabled !== false;
+    this.fullscreenButton.textContent = active ? 'Exit fullscreen' : 'Fullscreen';
+    this.fullscreenButton.disabled = this.fullscreenBusy || !supported;
+    this.fullscreenButton.setAttribute('aria-busy', String(this.fullscreenBusy));
+    this.fullscreenHint.textContent = this.fullscreenNotice || (!supported
+      ? 'Fullscreen is unavailable in this browser or page.'
+      : this.fullscreenBusy ? 'Changing fullscreen…' : 'Press Esc to exit fullscreen.');
+  }
+
+  private toggleFullscreen(): void {
+    if (this.fullscreenBusy) return;
+    this.fullscreenBusy = true;
+    this.fullscreenNotice = '';
+    this.guardFullscreenInput();
+    this.renderFullscreen();
+    const failed = () => {
+      this.fullscreenNotice = document.fullscreenElement
+        ? 'Could not exit fullscreen. Press Esc to exit.'
+        : 'Fullscreen was blocked. Try clicking Fullscreen, or check browser permissions.';
+    };
+    const finished = () => {
+      this.fullscreenBusy = false;
+      this.guardFullscreenInput();
+      this.renderFullscreen();
+    };
+    try {
+      // Invoke before awaiting so a click or keyboard gesture can authorize the request.
+      const request = document.fullscreenElement
+        ? document.exitFullscreen()
+        : document.documentElement.requestFullscreen();
+      void Promise.resolve(request).catch(failed).finally(finished);
+    } catch {
+      failed();
+      finished();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -322,8 +475,9 @@ export class Menu {
 
   private buildMultiplayer(): void {
     const p = this.addPanel('multiplayer', 'main', 'Multiplayer');
+    p.el.classList.add('multiplayer-panel');
     const hint = el('p', 'menu-hint');
-    hint.textContent = 'One player hosts from their browser; friends join with the room code. Everyone plays with their own physics prediction, so keep the host on a good connection.';
+    hint.textContent = 'For LAN play, host a room and share the code with friends on the same network.';
     p.el.appendChild(hint);
 
     const nameRow = el('div', 'field-row');
@@ -342,7 +496,15 @@ export class Menu {
     p.el.appendChild(nameRow);
     p.items.push({ el: nameRow, row: 0, col: 0, activate: () => this.nameInput.focus() });
 
-    const hostBtn = this.addButton(p, p.el, 'Host a room', 1, 0, () => this.hostClicked());
+    const browserSection = el('div', 'multiplayer-section browser-section');
+    const browserHeading = el('h3', 'multiplayer-heading');
+    browserHeading.textContent = 'LAN play · recommended';
+    const browserHint = el('p', 'menu-hint');
+    browserHint.textContent = 'Use the same Wi-Fi or wired network and keep the host’s tab in the foreground. Room setup needs internet access; gameplay connects directly when your network allows it. Friends on other networks can also join.';
+    browserSection.append(browserHeading, browserHint);
+    p.el.appendChild(browserSection);
+    const hostBtn = this.addButton(p, browserSection, 'Host LAN room', 1, 0, () => this.hostClicked());
+
     hostBtn.classList.add('primary');
 
     const joinRow = el('div', 'field-row');
@@ -363,25 +525,113 @@ export class Menu {
       } else if (e.key === 'Escape') this.codeInput.blur();
     });
     joinRow.append(codeLabel, this.codeInput);
-    p.el.appendChild(joinRow);
+    browserSection.appendChild(joinRow);
     p.items.push({ el: joinRow, row: 2, col: 0, activate: () => this.codeInput.focus() });
-    const joinBtn = this.addButton(p, p.el, 'Join room', 3, 0, () => this.joinClicked());
+    const joinBtn = this.addButton(p, browserSection, 'Join LAN room', 3, 0, () => this.joinClicked());
 
-    this.mpStatusEl = el('p', 'menu-status');
-    p.el.appendChild(this.mpStatusEl);
-    const testBtn = this.addButton(p, p.el, 'Test connection', 4, 0, () => this.onTestConnection?.());
+    const testBtn = this.addButton(p, browserSection, 'Test browser connection', 4, 0, () => this.onTestConnection?.());
     testBtn.classList.add('subtle');
     this.mpReportEl = el('div', 'net-report');
     this.mpReportEl.hidden = true;
-    p.el.appendChild(this.mpReportEl);
-    this.addButton(p, p.el, 'Back', 5, 0, () => this.back());
-    this.mpButtons = [hostBtn, joinBtn];
+    browserSection.appendChild(this.mpReportEl);
+
+    this.serverToggle = this.addButton(p, p.el, 'Server rooms', 5, 0, () => {
+      this.serverOptionsVisible = !this.serverOptionsVisible;
+      p.focus = p.items.findIndex(item => item.el === this.serverToggle);
+      this.renderMultiplayer();
+    });
+    this.serverToggle.classList.add('server-options-toggle');
+    this.serverToggle.setAttribute('role', 'switch');
+    this.serverToggle.setAttribute('aria-label', 'Server rooms');
+    this.serverToggle.setAttribute('aria-checked', 'false');
+    this.serverToggle.setAttribute('aria-controls', 'private-server-options');
+    const toggleLabel = el('span'); toggleLabel.textContent = 'Server rooms';
+    this.serverToggleState = el('span', 'server-toggle-state');
+    this.serverToggleState.setAttribute('aria-hidden', 'true');
+    const toggleTrack = el('span', 'server-toggle-track');
+    toggleTrack.setAttribute('aria-hidden', 'true');
+    this.serverToggle.replaceChildren(toggleLabel, this.serverToggleState, toggleTrack);
+
+    const serverSection = this.serverSection = el('div', 'multiplayer-section');
+    serverSection.id = 'private-server-options';
+    serverSection.hidden = true;
+    const serverHeading = el('h3', 'multiplayer-heading');
+    serverHeading.textContent = 'Server room';
+    serverSection.appendChild(serverHeading);
+    const modes = el('div', 'menu-row server-modes');
+    this.serverModeButtons = ([1, 2, 3, 4] as const).map((size, i) => {
+      const mode = this.addButton(p, modes, `${size}v${size}`, 6, i, () => {
+        this.serverTeamSize = size;
+        this.renderMultiplayer();
+      });
+      mode.setAttribute('aria-pressed', String(size === this.serverTeamSize));
+      return mode;
+    });
+    serverSection.appendChild(modes);
+    this.serverCreateButton = this.addButton(p, serverSection, 'Create server room', 7, 0, () => {
+      if (this.mpBusy || !this.serverCanCreate || this.inviteOnly) return;
+      saveName(this.nameInput.value);
+      this.onCreateServerRoom?.(this.playerName, this.serverTeamSize);
+    });
+    this.serverCreateButton.classList.add('primary');
+    const privateJoinRow = el('div', 'field-row');
+    const privateCodeLabel = el('label', 'field-label');
+    privateCodeLabel.textContent = 'Server room code';
+    this.serverCodeInput = document.createElement('input');
+    this.serverCodeInput.id = 'private-room-code';
+    privateCodeLabel.setAttribute('for', this.serverCodeInput.id);
+    this.serverCodeInput.className = 'menu-input code';
+    this.serverCodeInput.maxLength = 9;
+    this.serverCodeInput.placeholder = 'ABCD EFGH';
+    this.serverCodeInput.autocapitalize = 'characters';
+    this.serverCodeInput.spellcheck = false;
+    this.serverCodeInput.addEventListener('input', () => {
+      this.serverCodeInput.value = this.serverCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    });
+    this.serverCodeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        this.serverCodeInput.blur();
+        this.joinServerClicked();
+      } else if (e.key === 'Escape') this.serverCodeInput.blur();
+    });
+    privateJoinRow.append(privateCodeLabel, this.serverCodeInput);
+    serverSection.appendChild(privateJoinRow);
+    p.items.push({ el: privateJoinRow, row: 8, col: 0, activate: () => this.serverCodeInput.focus() });
+    const serverJoinButton = this.addButton(p, serverSection, 'Join server room', 9, 0, () => this.joinServerClicked());
+    p.el.appendChild(serverSection);
+
+    this.mpStatusEl = el('p', 'menu-status');
+    this.mpStatusEl.setAttribute('role', 'status');
+    p.el.appendChild(this.mpStatusEl);
+    this.addButton(p, p.el, 'Back', 10, 0, () => this.back());
+    this.mpButtons = [hostBtn, joinBtn, serverJoinButton, testBtn];
+    this.multiplayerItems = p.items.slice();
+    this.renderMultiplayer();
   }
 
   private renderMultiplayer(): void {
+    const p = this.panels.multiplayer;
+    const focused = p.items[p.focus]?.el;
+    this.serverSection.hidden = !this.serverOptionsVisible;
+    this.serverToggle.setAttribute('aria-checked', String(this.serverOptionsVisible));
+    this.serverToggleState.textContent = this.serverOptionsVisible ? 'On' : 'Off';
+    this.serverToggle.disabled = this.mpBusy;
+    // Collapsed controls leave the navigation grid as well as the rendered page.
+    if (!this.serverOptionsVisible) this.serverSection.querySelectorAll('.focused').forEach(item => item.classList.remove('focused'));
+    p.items = this.multiplayerItems.filter(item => this.serverOptionsVisible || !this.serverSection.contains(item.el));
+    const nextFocus = p.items.findIndex(item => item.el === focused);
+    p.focus = nextFocus >= 0 ? nextFocus : p.items.findIndex(item => item.el === this.serverToggle);
     this.mpStatusEl.textContent = this.mpStatus;
     this.mpStatusEl.classList.toggle('busy', this.mpBusy);
     for (const b of this.mpButtons) b.disabled = this.mpBusy;
+    this.serverCreateButton.disabled = this.mpBusy || !this.serverCanCreate;
+    this.serverCreateButton.title = this.serverCanCreate ? '' : 'Unlock the app with its password to create a room.';
+    this.serverModeButtons.forEach((b, i) => {
+      b.classList.toggle('primary', i + 1 === this.serverTeamSize);
+      b.setAttribute('aria-pressed', String(i + 1 === this.serverTeamSize));
+      b.disabled = this.mpBusy;
+    });
+    if (this.screen === 'multiplayer') this.setFocus(p.focus);
   }
 
   /** Show the result of a connection test (plain lines; empty string hides the block). */
@@ -390,14 +640,25 @@ export class Menu {
     this.mpReportEl.hidden = lines === '';
   }
 
+  private joinServerClicked(): void {
+    if (this.mpBusy || this.inviteOnly) return;
+    const code = this.serverCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 8) {
+      this.setMultiplayerStatus('Enter the eight-character server room code.');
+      return;
+    }
+    saveName(this.nameInput.value);
+    this.onJoinServerRoom?.(this.playerName, code);
+  }
+
   private hostClicked(): void {
-    if (this.mpBusy) return;
+    if (this.mpBusy || this.inviteOnly) return;
     saveName(this.nameInput.value);
     this.onHost?.(this.playerName);
   }
 
   private joinClicked(): void {
-    if (this.mpBusy) return;
+    if (this.mpBusy || this.inviteOnly) return;
     const code = this.codeInput.value.trim().toUpperCase();
     if (code.length < 4) {
       this.setMultiplayerStatus('Enter the room code your host sees in their lobby.');
@@ -412,9 +673,15 @@ export class Menu {
   // ---------------------------------------------------------------------------
 
   private lobbyBody!: HTMLElement;
+  private lobbyTitleRow!: HTMLElement;
 
   private buildLobby(): void {
     const p = this.addPanel('lobby', 'main', 'Lobby', true);
+    p.el.classList.add('lobby-panel');
+    const title = p.el.querySelector('.menu-title')!;
+    this.lobbyTitleRow = el('div', 'lobby-title-row');
+    p.el.insertBefore(this.lobbyTitleRow, title);
+    this.lobbyTitleRow.appendChild(title);
     this.lobbyBody = el('div', 'lobby');
     p.el.appendChild(this.lobbyBody);
   }
@@ -426,6 +693,7 @@ export class Menu {
     this.lobbyBody.replaceChildren();
     const s = this.lobbyState;
     const title = p.el.querySelector('.menu-title')!;
+    this.lobbyTitleRow.replaceChildren(title);
     if (!s) {
       title.textContent = 'Lobby';
       const msg = el('p', 'menu-hint');
@@ -436,38 +704,96 @@ export class Menu {
       if (this.screen === 'lobby') this.setFocus(0);
       return;
     }
-    title.innerHTML = `Room <span class="accent code">${escapeHtml(s.code)}</span>`;
+    const server = s.server;
+    const teamCapacity = server?.teamSize ?? MAX_TEAM_PLAYERS;
+    const totalCapacity = server ? teamCapacity * 2 : MAX_PLAYERS;
+    let controlRow = 0;
+    title.innerHTML = server ? 'Server room' : `Room <span class="accent code">${escapeHtml(s.code)}</span>`;
+    if (!server && s.isHost) {
+      const copyButton = this.addButton(p, this.lobbyTitleRow, 'Copy room code', -1, 0, () => void this.copyInvite(s.code, 'Code copied.'));
+      copyButton.classList.add('lobby-copy-code');
+    }
+    if (server) {
+      const invite = el('div', 'room-invite');
+      const label = el('div', 'room-code-label');
+      label.textContent = 'JOIN CODE';
+      const code = el('div', 'room-join-code');
+      code.textContent = s.code.replace(/(.{4})(?=.)/g, '$1 ');
+      code.setAttribute('aria-label', `Join code ${s.code.split('').join(' ')}`);
+      const expiry = el('div', 'room-expiry');
+      expiry.textContent = Date.now() >= server.expiresAt
+        ? 'Invite expired'
+        : `Invite expires ${new Date(server.expiresAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}`;
+      invite.append(label, code, expiry);
+      const shareActions = el('div', 'menu-row wrap room-share-actions');
+      let shareCol = 0;
+      this.addButton(p, shareActions, 'Copy code', controlRow, shareCol++, () => void this.copyInvite(s.code, 'Code copied.'));
+      if (server.inviteUrl) {
+        const inviteUrl = server.inviteUrl;
+        this.addButton(p, shareActions, 'Copy invite link', controlRow, shareCol++, () => void this.copyInvite(inviteUrl, 'Invite link copied.'));
+        if (typeof navigator.share === 'function') {
+          this.addButton(p, shareActions, 'Share invite', controlRow, shareCol++, () => void this.shareInvite(inviteUrl, s.code));
+        }
+      }
+      controlRow++;
+      invite.appendChild(shareActions);
+      this.lobbyBody.appendChild(invite);
+    }
     const status = el('div', 'lobby-status');
-    status.textContent = s.inMatch ? 'Match in progress' : s.isHost ? 'Share the code. Start when everyone is in.' : 'Waiting for the host to start.';
+    status.textContent = `${s.players.length}/${totalCapacity} players · ${server ? `${teamCapacity}v${teamCapacity}` : 'Up to 4v4'} · ` + (s.inMatch ? 'Match in progress' : s.isHost ? 'Share the code. Start when everyone is in.' : 'Waiting for the host to start.');
     this.lobbyBody.appendChild(status);
+    if (s.status && (server || s.status.includes('team is full'))) {
+      const notice = el('div', 'lobby-status');
+      notice.textContent = s.status;
+      this.lobbyBody.appendChild(notice);
+    }
 
+    if (this.lobbyNotice) {
+      const notice = el('p', 'menu-status room-share-notice');
+      notice.setAttribute('role', 'status');
+      notice.textContent = this.lobbyNotice;
+      this.lobbyBody.appendChild(notice);
+    }
     const teams = el('div', 'lobby-teams');
     for (const team of ['blue', 'orange'] as const) {
       const col = el('div', `lobby-team ${team}`);
       const head = el('div', 'lobby-team-title');
-      head.textContent = team.toUpperCase();
-      col.appendChild(head);
       const members = s.players.filter((pl) => pl.team === team);
-      if (members.length === 0) {
-        const empty = el('div', 'lobby-player empty');
-        empty.textContent = '—';
-        col.appendChild(empty);
-      }
+      head.textContent = `${team.toUpperCase()} ${members.length}/${teamCapacity}`;
+      col.appendChild(head);
       for (const pl of members) {
         const row = el('div', 'lobby-player' + (pl.slot === s.mySlot ? ' me' : ''));
-        row.textContent = pl.name + (pl.slot === 0 ? ' (host)' : '') + (pl.slot === s.mySlot ? ' · you' : '');
+        row.textContent = pl.name + (server ? (s.isHost && pl.slot === s.mySlot ? ' (owner)' : '') : (pl.slot === 0 ? ' (host)' : '')) + (pl.slot === s.mySlot ? ' · you' : '');
         col.appendChild(row);
+      }
+      for (let slot = members.length; slot < teamCapacity; slot++) {
+        const empty = el('div', 'lobby-player empty');
+        empty.textContent = 'Open slot';
+        col.appendChild(empty);
       }
       teams.appendChild(col);
     }
     this.lobbyBody.appendChild(teams);
 
+    const arenaRow = el('div', 'menu-row wrap lobby-arena');
+    const arenaLabel = el('div', 'lobby-info');
+    arenaLabel.textContent = `Arena: ${ARENAS[normalizeArena(this.selectedArena)].name}`;
+    arenaRow.appendChild(arenaLabel);
+    if (s.isHost && !s.inMatch && this.arenaCanSelect) {
+      this.addButton(p, arenaRow, 'Choose arena', controlRow, 0, () => this.show('arenas'));
+      controlRow++;
+    }
+    this.lobbyBody.appendChild(arenaRow);
     const controls = el('div', 'menu-row wrap');
     this.lobbyBody.appendChild(controls);
     let col = 0;
-    this.addButton(p, controls, 'Switch team', 0, col++, () => this.onSwitchTeam?.());
+    const me = s.players.find((pl) => pl.slot === s.mySlot);
+    const otherTeam = me?.team === 'blue' ? 'orange' : 'blue';
+    const canSwitch = server ? s.players.filter((pl) => pl.team === otherTeam).length < teamCapacity : teamHasSpace(s.players, otherTeam);
+    const switchButton = this.addButton(p, controls, canSwitch ? 'Switch team' : 'Other team full', controlRow, col++, () => this.onSwitchTeam?.());
+    switchButton.disabled = !canSwitch;
     if (s.isHost) {
-      this.addButton(p, controls, `Match length: ${matchLengthLabel(s.settings.matchSeconds)}`, 0, col++, () => this.onCycleMatchLength?.());
+      this.addButton(p, controls, `Match length: ${matchLengthLabel(s.settings.matchSeconds)}`, controlRow, col++, () => this.onCycleMatchLength?.());
     } else {
       const info = el('div', 'lobby-info');
       info.textContent = `Match length: ${matchLengthLabel(s.settings.matchSeconds)}`;
@@ -477,21 +803,66 @@ export class Menu {
     const actions = el('div', 'menu-row wrap');
     this.lobbyBody.appendChild(actions);
     col = 0;
-    if (s.inMatch) this.addButton(p, actions, 'Return to match', 1, col++, () => this.play()).classList.add('primary');
+    if (s.inMatch) this.addButton(p, actions, 'Return to match', controlRow + 1, col++, () => this.play()).classList.add('primary');
     if (s.isHost) {
-      if (!s.inMatch) this.addButton(p, actions, 'Start match', 1, col++, () => this.onStartMatch?.()).classList.add('primary');
-      else this.addButton(p, actions, 'End match', 1, col++, () => this.onEndMatch?.());
+      if (!s.inMatch) this.addButton(p, actions, 'Start match', controlRow + 1, col++, () => this.onStartMatch?.()).classList.add('primary');
+      else this.addButton(p, actions, 'End match', controlRow + 1, col++, () => this.onEndMatch?.());
     }
-    this.addButton(p, actions, 'Leave room', 1, col++, () => this.onLeaveRoom?.()).classList.add('danger');
+    this.addButton(p, actions, 'Leave room', controlRow + 1, col++, () => this.onLeaveRoom?.()).classList.add('danger');
 
+    if (server && s.isHost) {
+      const ownerActions = el('div', 'menu-row wrap room-owner-actions');
+      this.addButton(p, ownerActions, 'Rotate invite', controlRow + 2, 0, () => this.onRotateInvite?.());
+      this.addButton(p, ownerActions, 'Close room', controlRow + 2, 1, () => this.onCloseServerRoom?.()).classList.add('danger');
+      this.lobbyBody.appendChild(ownerActions);
+    }
     const hint = el('p', 'menu-hint');
-    hint.textContent = s.isHost
+    hint.textContent = server
+      ? (s.isHost
+        ? 'The server runs the match. Share this code or invite link with friends. Rotating the invite disables the previous code and link and disconnects invite-only guests; closing the room disconnects everyone.'
+        : 'The server runs the match. The room owner chooses match settings and starts the game. Your invite grants access to this room.')
+      : s.isHost
       ? 'Your browser runs the match: keep this tab open and in the foreground. Players can join mid-match with the same code.'
       : 'The host runs the match. If they close their tab, the room ends.';
     this.lobbyBody.appendChild(hint);
 
     p.focus = Math.min(focus, p.items.length - 1);
     if (this.screen === 'lobby') this.setFocus(p.focus);
+  }
+
+  private async copyInvite(value: string, success: string): Promise<void> {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const field = document.createElement('textarea');
+        field.value = value;
+        field.className = 'clipboard-fallback';
+        this.root.appendChild(field);
+        field.focus();
+        field.select();
+        let copied = false;
+        try { copied = document.execCommand('copy'); }
+        finally { field.remove(); }
+        if (!copied) throw new Error('Clipboard unavailable');
+      }
+      this.lobbyNotice = success;
+    } catch {
+      this.lobbyNotice = 'Could not copy. Select the join code above and copy it manually.';
+    }
+    if (this.screen === 'lobby') this.renderLobby();
+  }
+
+  private async shareInvite(url: string, code: string): Promise<void> {
+    try {
+      await navigator.share({ title: 'Car Soccer room', text: `Join my Car Soccer room: ${code}`, url });
+      this.lobbyNotice = 'Invite shared.';
+    } catch (error) {
+      this.lobbyNotice = error instanceof Error && error.name === 'AbortError'
+        ? 'Sharing canceled.'
+        : 'Could not share. Use Copy invite link or Copy code.';
+    }
+    if (this.screen === 'lobby') this.renderLobby();
   }
 
   // ---------------------------------------------------------------------------
@@ -530,6 +901,56 @@ export class Menu {
   }
 
   // ---------------------------------------------------------------------------
+  // Arenas: session-authorized selection with the live arena visible behind the panel.
+  // ---------------------------------------------------------------------------
+
+  private arenaButtons: HTMLButtonElement[] = [];
+  private arenaHint!: HTMLElement;
+
+  private buildArenas(): void {
+    const p = this.addPanel('arenas', 'main', 'Arenas');
+    p.el.classList.add('arena-panel');
+    this.arenaHint = el('p', 'menu-hint arena-selection-hint');
+    this.arenaHint.setAttribute('role', 'status');
+    p.el.appendChild(this.arenaHint);
+    const choices = el('div', 'menu-stack arena-choices');
+    this.arenaButtons = ARENAS.map((arena, i) => {
+      const choice = this.addButton(p, choices, '', i, 0, () => {
+        if (!this.arenaCanSelect) return;
+        if (this.screen === 'arenas') this.setFocus(i);
+        this.onSelectArena?.(arena.id);
+      });
+      choice.classList.add('arena-choice');
+      choice.dataset.arena = String(arena.id);
+      const name = el('span', 'arena-choice-name');
+      name.textContent = arena.name;
+      const description = el('span', 'arena-choice-description');
+      description.textContent = arena.description;
+      const selected = el('span', 'arena-choice-selected');
+      selected.textContent = 'Selected';
+      choice.append(name, description, selected);
+      return choice;
+    });
+    p.el.appendChild(choices);
+    this.addButton(p, p.el, 'Back', ARENAS.length, 0, () => this.back());
+    this.renderArenas();
+  }
+
+  private renderArenas(): void {
+    this.arenaButtons.forEach((choice, i) => {
+      const selected = ARENAS[i].id === this.selectedArena;
+      choice.classList.toggle('primary', selected);
+      choice.setAttribute('aria-pressed', String(selected));
+      choice.disabled = !this.arenaCanSelect;
+      (choice.querySelector('.arena-choice-selected') as HTMLElement).hidden = !selected;
+    });
+    this.arenaHint.textContent = this.arenaCanSelect
+      ? this.arenaRoom ? 'Choose the arena for everyone in this room.' : 'Choose an arena. See it live behind this panel.'
+      : this.arenaRoom ? 'The room owner chooses the arena before the match starts.' : 'Arena selection is unavailable.';
+    if (this.screen === 'arenas') this.setFocus(this.panels.arenas.focus);
+  }
+
+  // ---------------------------------------------------------------------------
   // Settings
   // ---------------------------------------------------------------------------
 
@@ -551,6 +972,8 @@ export class Menu {
     p.el.appendChild(table);
     const footer = el('div', 'menu-row');
     p.el.appendChild(footer);
+    this.controlsReminderHint = el('p', 'menu-hint');
+    p.el.appendChild(this.controlsReminderHint);
 
     const render = () => {
       // Rebuild the table and the item list (footer buttons re-added after).
@@ -580,9 +1003,24 @@ export class Menu {
         this.onBindingsChanged?.();
       });
       this.addButton(p, footer, 'Back', r, 2, () => this.back());
+      this.controlsReminderButton = this.addButton(p, footer, 'Show in-game reminder', r + 1, 1, () => {
+        if (!this.canResume()) return;
+        this.input.consumeMenuAcceptUntilRelease();
+        this.onShowControlsReminder?.();
+        this.play();
+      });
+      this.controlsReminderButton.dataset.action = 'show-controls-reminder';
+      this.renderControlsReminderAction();
       if (this.screen === 'controls') this.setFocus(p.focus);
     };
     render();
+  }
+
+  private renderControlsReminderAction(): void {
+    this.controlsReminderButton.disabled = !this.canResume();
+    this.controlsReminderHint.textContent = this.canResume()
+      ? 'Show a compact controls card while you play. Reopen it here anytime.'
+      : 'Start Free Play or join a match to show the in-game reminder.';
   }
 
   private bindCell(p: Panel, action: Action, kind: 'gamepad' | 'key', row: number, col: number, rerender: () => void): HTMLButtonElement {
@@ -606,6 +1044,7 @@ export class Menu {
       this.input.startCapture(onCapture);
     });
     cell.classList.add('bind-cell');
+    if (!label) cell.setAttribute('aria-label', `${ACTION_LABELS[action]} ${kind === 'key' ? 'keyboard' : 'gamepad'} binding, unassigned`);
     p.items.push({ el: cell, row, col, activate: () => cell.click() });
     return cell;
   }

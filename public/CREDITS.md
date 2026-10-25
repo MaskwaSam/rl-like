@@ -14,3 +14,7 @@ All assets below are used under their stated licenses. Nothing here is from Rock
 Everything else (whooshes, skid, wind, beeps, horn) is synthesised at runtime with WebAudio. Every sample above is CC0, so no attribution is required; it is recorded here anyway.
 
 There is deliberately no crowd or stadium ambience: sound is only ever a response to something the player did.
+
+## Daylight stadium artwork
+
+The stadium bowl, seating, spectators, roof trusses, banners, sky/cloud texture, turf, safety mesh, scoreboard and added car details are original procedural geometry and Canvas textures implemented in this repository. The Soccar reference was inspected visually for general presentation; no reference source, models, textures, sounds, branding or other assets were copied.

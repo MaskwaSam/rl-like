@@ -4,6 +4,7 @@
  * one when a packet is late), and broadcasts the full state every other tick.
  */
 import type { Peer } from 'peerjs';
+import { normalizeArena } from '../arenas';
 import type { Vector3 } from 'three';
 import type { Team } from '../sim/car';
 import { Game, type GameConfig } from '../sim/game';
@@ -13,6 +14,7 @@ import type { CarInput } from '../input/types';
 import { DEFAULT_MATCH_SETTINGS, MAX_PLAYERS, PROTOCOL_VERSION, Packet, clampBody, decodeInputs, encodePong, encodeSnapshot, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
 import { acceptConnections, hostRoom, type Link } from './transport';
 import { liveCarState, type CarRenderState, type LobbyState, type Session } from './session';
+import { balancedTeam, teamHasSpace } from './roster';
 
 /** Snapshots go out every SNAPSHOT_INTERVAL ticks (60 Hz). */
 const SNAPSHOT_INTERVAL = 2;
@@ -57,6 +59,7 @@ export class HostSession implements Session {
   private config: GameConfig | null = null;
   private readonly startedAt = performance.now();
   private ended = false;
+  private teamNotice = '';
 
   private constructor(
     private readonly peer: Peer,
@@ -95,7 +98,7 @@ export class HostSession implements Session {
       isHost: true,
       settings: this.settings,
       inMatch: this.inMatch,
-      status: `Hosting room ${this.code}`,
+      status: this.teamNotice || `Hosting room ${this.code}`,
     };
   }
 
@@ -121,14 +124,14 @@ export class HostSession implements Session {
         }
         const slot = this.freeSlot();
         if (slot < 0) {
-          link.sendCtrl({ t: 'reject', reason: 'Room is full' });
+          link.sendCtrl({ t: 'reject', reason: 'Room is full (8/8 players)' });
           setTimeout(() => link.close(), 500);
           return;
         }
         client = {
           slot,
           name: sanitizeName(msg.name) || `Player ${slot + 1}`,
-          team: this.balancedTeam(),
+          team: balancedTeam(this.players()),
           body: clampBody(msg.body),
           link,
           inputs: new Map(),
@@ -164,7 +167,14 @@ export class HostSession implements Session {
     switch (msg.t) {
       case 'team':
         if (msg.team === 'blue' || msg.team === 'orange') {
+          if (!teamHasSpace(this.players(), msg.team, client.slot)) {
+            client.link.sendCtrl({ t: 'notice', reason: `${msg.team === 'blue' ? 'Blue' : 'Orange'} team is full (4/4)` });
+            return;
+          }
+          if (client.team === msg.team) return;
           client.team = msg.team;
+          client.inputs.clear();
+          client.lastInputTick = -1;
           if (this.game) this.game.addCar(client.slot, client.team); // re-creates the car on the new team
           this.broadcastLobby();
         }
@@ -201,24 +211,26 @@ export class HostSession implements Session {
     return -1;
   }
 
-  private balancedTeam(): Team {
-    let blue = this.hostTeam === 'blue' ? 1 : 0;
-    let orange = 1 - blue;
-    for (const c of this.clients.values()) c.team === 'blue' ? blue++ : orange++;
-    return blue <= orange ? 'blue' : 'orange';
-  }
-
   private broadcastLobby(): void {
+    this.teamNotice = '';
     const msg: CtrlMsg = { t: 'lobby', players: this.players(), settings: this.settings, inMatch: this.inMatch };
     for (const c of this.clients.values()) c.link.sendCtrl(msg);
     this.onLobbyChanged?.();
   }
 
   /** Host UI: switch own team. */
-  setHostTeam(team: Team): void {
+  setHostTeam(team: Team): boolean {
+    if (!teamHasSpace(this.players(), team, 0)) {
+      this.teamNotice = `${team === 'blue' ? 'Blue' : 'Orange'} team is full (4/4)`;
+      this.onLobbyChanged?.();
+      return false;
+    }
+    this.teamNotice = '';
+    if (this.hostTeam === team) return true;
     this.hostTeam = team;
     if (this.game) this.game.addCar(0, team);
     this.broadcastLobby();
+    return true;
   }
 
   /** Host UI: own car body. Cosmetic, so it can change at any time, even mid-match. */
@@ -234,7 +246,8 @@ export class HostSession implements Session {
   }
 
   setSettings(settings: Partial<MatchSettings>): void {
-    Object.assign(this.settings, settings);
+    if (settings.matchSeconds !== undefined) this.settings.matchSeconds = settings.matchSeconds;
+    if (settings.arena !== undefined && !this.inMatch && !this.starting) this.settings.arena = normalizeArena(settings.arena);
     this.broadcastLobby();
   }
 
@@ -249,9 +262,15 @@ export class HostSession implements Session {
       infiniteBoost: false,
       countdown: ONLINE_COUNTDOWN,
       matchSeconds: this.settings.matchSeconds,
+      arena: normalizeArena(this.settings.arena),
       seed: (Math.random() * 0xffffffff) >>> 0 || 1,
     };
     const game = await Game.create(config);
+    if (this.ended) {
+      game.destroy();
+      this.starting = false;
+      return;
+    }
     game.setDodgeDeadzone(0, this.hostDodgeDeadzone);
     game.addCar(0, this.hostTeam);
     for (const c of this.clients.values()) {

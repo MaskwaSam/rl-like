@@ -11,7 +11,7 @@ import { OCTANE } from '../sim/rl';
 import { HITBOX_HALF, HITBOX_OFFSET, type Team } from '../sim/car';
 import { GLOW, glow } from './effects';
 
-export const TEAM_PAINT: Record<Team, number> = { blue: 0x1f63d8, orange: 0xf07f1a };
+export const TEAM_PAINT: Record<Team, number> = { blue: 0x184bc2, orange: 0xe57b26 };
 export const TEAM_GLOW: Record<Team, number> = { blue: 0x4aa3ff, orange: 0xff9a3c };
 
 export interface CarMeshes {
@@ -83,9 +83,18 @@ export const CAR_BODIES: CarBody[] = [
       k.back(k.trim, hw * 1.9, hh * 0.34, 0, -hh * 0.3, 0.02, 0.04);
       k.front(k.chrome, hw * 1.2, hh * 0.16, 0, -hh * 0.1, 0.012); // grille bar
       for (const side of [1, -1]) {
-        k.box(k.headlight, hw * 0.44, hh * 0.16, 0.03, side * hw * 0.62, hh * 0.16, -hl * 0.955);
-        k.back(k.taillight, hw * 0.46, hh * 0.18, side * hw * 0.6, hh * 0.18);
+        k.front(k.trim, hw * 0.53, hh * 0.24, side * hw * 0.62, hh * 0.16);
+        k.front(k.headlight, hw * 0.44, hh * 0.13, side * hw * 0.62, hh * 0.16, 0.012);
+        k.back(k.trim, hw * 0.6, hh * 0.32, side * hw * 0.6, hh * 0.14);
+        k.back(k.taillight, hw * 0.47, hh * 0.12, side * hw * 0.6, hh * 0.19, 0.015);
+        k.back(k.chrome, hw * 0.47, hh * 0.04, side * hw * 0.6, hh * 0.02, 0.015);
+        // Window mullion, door handle and a thin sill seam give the original hatch more scale.
+        k.box(k.trim, 0.018, hh * 0.42, 0.035, side * (hw + 0.009), hh * 0.6, hl * 0.18);
+        k.box(k.chrome, 0.018, 0.018, 0.075, side * (hw + 0.013), hh * 0.25, hl * 0.17);
+        k.box(k.trim, 0.013, 0.015, hl * 1.05, side * (hw + 0.009), -hh * 0.26, 0);
       }
+      k.back(k.chrome, hw * 0.28, hh * 0.05, 0, hh * 0.13, 0.013);
+      k.box(k.trim, hw * 0.72, 0.008, hl * 0.68, 0, hh * 0.99 + k.skin + 0.004, hl * 0.14);
       k.box(k.trim, hw * 1.7, hh * 0.1, hl * 0.12, 0, hh * 1.04 + k.skin, hl * 0.52); // roof spoiler
     },
   },
@@ -173,7 +182,7 @@ export function buildCarMeshes(team: Team, bodyIndex: number): CarMeshes {
   const hl = HITBOX_HALF.z; // 0.603 half length; the nose is at -z
 
   // Metallic flake paint under a glossy clear coat, as on a real car.
-  const paint = new THREE.MeshPhysicalMaterial({ color: TEAM_PAINT[team], metalness: 0.2, roughness: 0.4, clearcoat: 1, clearcoatRoughness: 0.08 });
+  const paint = new THREE.MeshPhysicalMaterial({ color: TEAM_PAINT[team], metalness: 0.35, roughness: 0.26, clearcoat: 1, clearcoatRoughness: 0.08 });
   const trim = new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.65, metalness: 0.1 });
   const glass = new THREE.MeshStandardMaterial({ color: 0x0a1018, roughness: 0.05, metalness: 0.6 });
   const chrome = new THREE.MeshStandardMaterial({ color: 0xc9d1dc, roughness: 0.25, metalness: 0.5 });
@@ -248,6 +257,15 @@ export function buildCarMeshes(team: Team, bodyIndex: number): CarMeshes {
 
   (CAR_BODIES[bodyIndex] ?? CAR_BODIES[0]).build(kit);
 
+  // Twin exhaust surrounds and a recessed diffuser are cosmetic on every body.
+  for (const side of [-1, 1]) {
+    const exhaust = new THREE.Mesh(new THREE.TorusGeometry(0.037, 0.011, 6, 12), chrome);
+    exhaust.position.set(side * hw * 0.48, -hh * 0.34, tailZ + 0.045);
+    body.add(exhaust);
+    kit.back(trim, 0.05, 0.05, side * hw * 0.48, -hh * 0.34, 0.047);
+  }
+  for (let i = -2; i <= 2; i++) kit.back(trim, 0.013, hh * 0.23, i * hw * 0.13, -hh * 0.48, 0.035);
+
   // Shared by every body: dark lower skirt, and team-colour accent strips just above it.
   box(trim, hw * 2.02, hh * 0.3, hl * 1.98, 0, -hh * 0.78, 0);
   for (const side of [1, -1]) box(accent, 0.012, hh * 0.07, hl * 1.3, side * (hw + 0.004), -hh * 0.58, 0);
@@ -261,7 +279,7 @@ export function buildCarMeshes(team: Team, bodyIndex: number): CarMeshes {
     { x: -OCTANE.rearWheelOffset.y, z: -OCTANE.rearWheelOffset.x, r: OCTANE.rearWheelRadius, front: false },
   ];
   const tyreMat = new THREE.MeshStandardMaterial({ color: 0x0d0f12, roughness: 0.92, metalness: 0 });
-  // Satin rather than mirror metal: a mirror would only show the dark night stadium.
+  // Satin rims keep the spokes readable under the bright stadium environment.
   const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4ccd8, roughness: 0.35, metalness: 0.35 });
   const wheels: CarMeshes['wheels'] = [];
   for (const d of wheelDefs) {
@@ -270,12 +288,18 @@ export function buildCarMeshes(team: Team, bodyIndex: number): CarMeshes {
     pivot.position.set(d.x + Math.sign(d.x) * 0.035, restY, d.z);
     const holder = new THREE.Group();
     const width = 0.175;
-    const tyre = new THREE.CylinderGeometry(d.r, d.r, width, 16);
+    const tyre = new THREE.CylinderGeometry(d.r, d.r, width, 24);
     tyre.rotateZ(Math.PI / 2);
     const tyreMesh = new THREE.Mesh(tyre, tyreMat);
-    const rim = new THREE.CylinderGeometry(d.r * 0.62, d.r * 0.62, width + 0.012, 12);
+    const rim = new THREE.CylinderGeometry(d.r * 0.62, d.r * 0.62, width + 0.012, 20);
     rim.rotateZ(Math.PI / 2);
-    tyreMesh.add(new THREE.Mesh(rim, rimMat));
+    tyreMesh.add(new THREE.Mesh(rim, trim));
+    for (const side of [-1, 1]) {
+      const lip = new THREE.Mesh(new THREE.TorusGeometry(d.r * 0.64, 0.012, 6, 24), rimMat);
+      lip.rotation.y = Math.PI / 2;
+      lip.position.x = side * (width / 2 + 0.01);
+      tyreMesh.add(lip);
+    }
     // Spokes: a couple of thin bars so the wheel visibly turns.
     for (let i = 0; i < 3; i++) {
       const spoke = new THREE.Mesh(new THREE.BoxGeometry(width + 0.014, d.r * 1.1, 0.035), rimMat);

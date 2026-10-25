@@ -37,6 +37,8 @@ export interface BoostPad {
 }
 
 export interface GameConfig {
+  /** Visual venue only; absent on older hosts. Does not affect simulation. */
+  arena?: number;
   /** Boost never runs out (free play). Pads still light up and recharge. */
   infiniteBoost: boolean;
   /** Seconds cars stay frozen at each kickoff. 0 = drive immediately. */
@@ -85,6 +87,8 @@ export interface GameState {
   pads: number[];
   cars: { id: number; team: Team; state: CarState }[];
 }
+
+export type GameMetaState = Omit<GameState, 'tick' | 'ball' | 'cars'>;
 
 export function emptyState(): BodyState {
   return { px: 0, py: 0, pz: 0, qx: 0, qy: 0, qz: 0, qw: 1 };
@@ -368,7 +372,7 @@ export class Game {
     this.currentSpawn = this.spawnOrder[this.spawnCursor++];
     let blue = 0;
     let orange = 0;
-    for (const car of this.cars.values()) {
+    for (const car of [...this.cars.values()].sort((a, b) => a.id - b.id)) {
       car.setDemoed(false);
       car.demoTimer = 0;
       const slot = car.team === 'blue' ? blue++ : orange++;
@@ -392,7 +396,24 @@ export class Game {
   private placeAtSpawn(car: Car): void {
     let n = 0;
     for (const c of this.cars.values()) if (c !== car && c.team === car.team) n++;
-    this.placeCar(car, (this.currentSpawn + n) % KICKOFF_SPAWNS.length);
+    const preferred = (this.currentSpawn + n) % KICKOFF_SPAWNS.length;
+    const mirror = car.team === 'orange' ? -1 : 1;
+    let safest = preferred;
+    let bestClearance = -1;
+    for (let offset = 0; offset < KICKOFF_SPAWNS.length; offset++) {
+      const index = (preferred + offset) % KICKOFF_SPAWNS.length;
+      const [sx, sz] = KICKOFF_SPAWNS[index];
+      let clearance = Infinity;
+      for (const other of this.cars.values()) {
+        if (other === car || other.demoed) continue;
+        const p = other.body.translation();
+        clearance = Math.min(clearance, (p.x - sx * UU * mirror) ** 2 + (p.z - sz * UU * mirror) ** 2);
+      }
+      // Three metres leaves room for either car's orientation and suspension settling.
+      if (clearance >= 9) { safest = index; break; }
+      if (clearance > bestClearance) { bestClearance = clearance; safest = index; }
+    }
+    this.placeCar(car, safest);
   }
 
   private placeCar(car: Car, spawnIndex: number): void {
@@ -643,6 +664,18 @@ export class Game {
     this.copySnapshot(this.curr, this.prev);
   }
 
+  /** Copy prediction metadata at this tick, independently of the mutable simulation. */
+  captureMetaState(): GameMetaState {
+    return {
+      phase: this.phase, countdown: this.countdown, goalPause: this.goalPause,
+      timeRemaining: this.timeRemaining, overtimeElapsed: this.overtimeElapsed, overtime: this.overtime,
+      score: { ...this.score }, lastGoal: this.lastGoal, lastGoalScorer: this.lastGoalScorer,
+      lastTouch: this.lastTouch, lastGoalSpeed: this.lastGoalSpeed, rngState: this.rng.state,
+      spawnOrder: this.spawnOrder.slice(), spawnCursor: this.spawnCursor, currentSpawn: this.currentSpawn,
+      pads: this.pads.map((pad) => pad.cooldown),
+    };
+  }
+
   /** Everything except the rigid bodies and the tick: clock, phase, score, pads, RNG. Used when the physics already agrees. */
   applyMetaState(s: GameState): void {
     this.phase = s.phase;
@@ -783,9 +816,7 @@ export class Game {
   private respawnCar(car: Car): void {
     car.setDemoed(false);
     car.demoTimer = 0;
-    let n = 0;
-    for (const c of this.cars.values()) if (c !== car && c.team === car.team) n++;
-    this.placeCar(car, (this.currentSpawn + n) % KICKOFF_SPAWNS.length);
+    this.placeAtSpawn(car);
   }
 
   /**

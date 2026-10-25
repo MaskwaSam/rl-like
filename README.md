@@ -13,13 +13,23 @@ npm run dev
 
 Open the printed URL (default http://127.0.0.1:5173). Press any button on a connected controller so the browser exposes it. The game starts on a menu with **Free Play**, **Multiplayer** and **Settings**. Esc or Start opens the menu during play; free play pauses, an online match keeps running.
 
-## Multiplayer
+## Arenas
 
-One player picks **Multiplayer → Host a room** and gets a five-letter code. Friends open the same site, enter the code and **Join**. The host's lobby shows both teams (switch with one button), the match length, and **Start match**. Up to eight players; people can join or leave mid-match.
+Choose **Arenas** from the main or pause menu to preview **Daylight Stadium**, **Neon Night**, **Industrial Indoor**, or **Maskwa Arena**. Your free-play choice is saved in this browser and becomes the default when you create a room. In a multiplayer lobby, the room owner uses **Choose arena**; everyone receives the same venue. End the match before choosing a new arena for the next match. Field dimensions, collision geometry, pads, car handling and controller bindings are identical in all four venues.
+
+Arena IDs and labels live in `src/arenas.ts`. The shared pitch, sky and lighting are in `src/render/renderer.ts`; the stadium seating is in `src/render/stadium.ts` and the indoor shell in `src/render/industrial.ts`. The first three venues use original procedural 3D geometry and textures. Maskwa Arena adds the school’s cyan/navy palette, name banners, the supplied MCHS badge and the actual Maskwa Bear sports-team emblem supplied by Sam. Asset provenance is recorded in `src/assets/README.md`. Keep appearance changes in these render files so physics and multiplayer remain independent.
+
+## Peer-hosted multiplayer
+
+One player picks **Multiplayer → Host a room** and gets a five-letter code. Friends open the same site, enter the code and **Join**. The lobby shows eight places, four per team, the match length, and **Start match**. New players join the smaller team; switching into a full team is blocked by the host. Up to **4v4**, with smaller matches supported. People can join or leave mid-match. Rejoining with the room code uses a vacant slot and the new player's selected body and controls; it does not restore a disconnected player's identity automatically.
+
+For a repeatable local check, run `node qa/run-headless.mjs` (21 simulation/session checks with in-memory transport). With the development server running, open `/qa/multiplayer.html` and click **Run eight-player verification** for one real PeerJS/WebRTC host and seven client sessions. That page exercises capacity, team limits, snapshots, sustained input, cosmetic bodies, disconnect/rejoin, reset/end and a smaller match. It is not included in `dist/`, and a run closes all its test connections. Eight sessions on one browser do not establish eight-person cross-network performance.
+
+**1v1, 2v2, 3v3 and 4v4** use the players currently in the room, with one to four on each team. There is no separate mode selector or fixed-size admission setting. The host can also start solo or with unequal teams, and people can join during play. `node qa/run-headless.mjs modes` checks all four balanced sizes (lobby, kickoff/countdown, snapshots/bodies, clocks, sustained input/boost, reset, goals, end and immediate rematch) and verifies the current solo/unequal-team start rules: 51 additional headless checks, including lobby/match arena synchronization and switching for rematches.
 
 How it works:
 
-- **The host's tab is the server.** It runs the authoritative `Game` at 120 Hz, applies every player's input for the tick it was stamped with (repeating the last one when a packet is late) and sends the complete game state to each client 60 times a second (about 300 bytes with four cars).
+- **The host's tab is the server.** It runs the authoritative `Game` at 120 Hz, applies every player's input for the tick it was stamped with (repeating the last one when a packet is late) and sends the complete game state to each client 60 times a second (about 1.1 KB with eight cars, plus the packet header).
 - **Transport is WebRTC via PeerJS.** PeerJS's free public broker only does the introduction; game traffic flows peer to peer. On top of PeerJS's reliable channel a second data channel is opened unordered with no retransmits, so a lost packet never delays the ones behind it; if that channel cannot be set up, packets fall back to the reliable one.
 - **A relay (TURN) is required for most pairs of players.** Two peers connect directly only when one side's router accepts an inbound connection. Between two home networks, on mobile or carrier-grade NAT, or even between two browser profiles behind a router that will not hairpin, the only path is a TURN relay. PeerJS's built-in relay hosts (`eu-0`/`us-0.turn.peerjs.com`) no longer resolve in DNS, so the defaults are not used: `src/net/transport.ts` ships its own STUN list and reads relay credentials at runtime from `public/turn.json`, which is deployed with the site. Leave it empty and the game still runs, but only directly-reachable pairs can connect. **Multiplayer → Test connection** reports exactly what the current network allows.
 
@@ -39,7 +49,7 @@ The second is what the Metered dashboard's **TURN Server -> Show ICE Servers Arr
 - **Background tabs.** Browsers throttle a hidden tab's frame loop to about once a second, which would freeze a hosted match. A tiny Web Worker (whose timers are not throttled) ticks the network session while the tab is hidden, so the host can tab out without stopping the game. The player's own car coasts meanwhile.
 - **Match flow online:** three-second kickoff countdown with cars frozen, RocketSim's kickoff placement (blue takes shuffled spawn *i*, orange the mirror), real boost with pads, a match clock (unlimited, 3, 5 or 10 minutes), overtime with a fresh kickoff on a tie, and a result banner. Dodge deadzone is a player setting, so each client sends theirs and the host simulates that player's car with it.
 
-Known limits: no bumps or demolitions yet (cars collide as rigid bodies); a client cannot reset the match; if the host closes the tab the room ends; the PeerJS public broker occasionally refuses connections, in which case hosting again gets a new code.
+Known limits: a client cannot reset the match; if the host closes the tab the room ends; the PeerJS public broker occasionally refuses connections, in which case hosting again gets a new code. The host sends seven snapshot streams in a full 4v4 match, so connection quality and host performance matter.
 
 ## Deploying
 
@@ -58,7 +68,7 @@ Known limits: no bumps or demolitions yet (cars collide as rigid bodies); a clie
 | Air roll (free): stick X axis rolls | X | Right Shift |
 | Air roll left / right | LB / RB | Q / E |
 | Toggle ball cam | Y | C |
-| Reset match | Back | R |
+| Reset match | Back | Unassigned |
 | Menu | Start | Esc |
 
 Everything except the steering axis can be rebound in Settings. Bindings persist in the browser.
@@ -133,7 +143,7 @@ Reference footage: a pro's free-play session (Zen, https://www.youtube.com/watch
 - HUD: ping sits next to the frame rate in the top right during an online match.
 - The ball has a hexagon-panel texture, a soft additive glow, a blob shadow on the floor that fades with height, and a white streak (camera-facing ribbon) once it moves faster than about 14 m/s. Cars have a blob shadow and a short team-coloured boost trail behind the flame.
 - Goals burst: a flash, an expanding ring and a spray of points in the scoring team's colour at the ball's last position.
-- Walls are opaque, single-sided (normals face inward) and textured as hexagon-mesh glass over a baked stadium: three seating tiers of soft speckle, walkway rails, roof struts, and the light rail at goal height. A gradient night-sky dome replaces the flat background.
+- The daylight stadium has three stepped seating tiers, instanced spectators, roof trusses, hanging team flags, floodlights and live scoreboards. Transparent hexagon safety mesh follows the original collision arena above an opaque lower ramp; wall and ceiling driving still use the same physics. An original sky/cloud dome, environment reflections and blue/orange goal-zone turf complete the presentation. All new arena artwork is generated in code; no reference assets are downloaded.
 - The floor is one static 2048 px texture: turf stripes, boundary, goal lines, centre circle, goal boxes and arcs, boost pad rings. Drawn once at startup, zero per-frame cost.
 - The car is a Fennec-style body of a dozen boxes on the Octane hitbox, with four wheels at RL's hardpoints that spin with forward speed and steer with RL's steer-angle curve.
 - Sound mixes samples and synthesis. Sampled (all CC0, see `public/CREDITS.md`): two engine loops crossfaded and pitched by speed, a boost roar with an ignition burst, three ball impacts and three car impacts picked at random with pitch variation and distance attenuation, soft and hard landings, big and small pad pickups, countdown tick and go, goal crunch and boom. Synthesised: jump, double-jump and dodge whooshes, tyre roll and skid, supersonic wind, the goal horn. Everything runs through a compressor so stacked impacts never clip, and every sample has a synthesised stand-in if it fails to load. Nothing is taken from Rocket League itself, and there is no ambience of any kind: every layer is driven by the player, so a stationary car with no input is silent. Volume is in Settings → Gameplay.
@@ -187,7 +197,7 @@ Three of these were fixes found by the comparison: a 25th tick of jump accelerat
 - On a goal the ball disappears for 2 s while play continues; then cars and ball reset to kickoff. The banner shows the scorer and the goal speed in km/h.
 - Wheel "extra pushback" (RocketSim): past 2.5 uu of compression a wheel ray acts as a rigid contact, so hard or tilted landings stop on the wheels instead of sinking the hitbox into the floor and being fired back up by the springs.
 - HUD: score, FPS (top right), ball-cam indicator and controller status (bottom left), speed in uu/s and an RL-style boost gauge (bottom right). Speed turns red, larger and pulsing at the 2300 uu/s cap; the boost flame goes white when supersonic.
-- The menu shows over black with the game not rendered.
+- The left-side main menu shows over an elevated stadium view. Submenus use the same arena background; the Garage retains its rotating showroom. Gameplay has a segmented boost gauge, compact team score tiles and free-play shortcuts. Opening the menu still pauses free play while online matches continue.
 
 ## Engine note: why flips come round a full turn
 

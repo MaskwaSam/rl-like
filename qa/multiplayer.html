@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Car Soccer · local multiplayer verification</title>
+  <style>
+    body { margin: 0; background: #102130; color: #edf6ff; font: 16px/1.5 system-ui, sans-serif; }
+    main { max-width: 1100px; padding: 32px; margin: auto; }
+    h1 { font-size: 30px; margin: 0; } p { color: #becedf; }
+    button { padding: 12px 18px; background: #bfe7ff; border: 0; color: #16334b; font: inherit; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    #status { padding: 18px 0; font-weight: bold; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ffffff20; }
+    .pass { color: #8de1b3; } .fail { color: #ffa291; } li { padding: 4px 0; }
+    .blue { color: #8ebdff; } .orange { color: #efb77b; }
+    small { color: #bdcad7; }
+  </style>
+</head>
+<body><main>
+  <h1>Car Soccer · 4v4 verification</h1>
+  <p>Development test: one host and seven independent PeerJS/WebRTC clients in this browser. Uses the real simulation and session classes, with sustained test inputs. This does not measure eight people's cross-network performance.</p>
+  <button id="run">Run eight-player verification</button>
+  <div id="status" role="status">Ready</div>
+  <table aria-label="Latest eight-player roster"><thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>Body</th><th>Cars synced</th><th>Snapshots</th><th>Ping</th></tr></thead><tbody id="roster"></tbody></table>
+  <ol id="results"></ol>
+  <small>The room and all test connections close when the run finishes. This page is served only by the development server and is not part of the production build.</small>
+</main><script type="module" src="./multiplayer.ts"></script></body>
+</html>

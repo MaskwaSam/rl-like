@@ -1,0 +1,16 @@
+.access-gate { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; align-items: safe center; overflow: auto; padding: 24px; box-sizing: border-box; background: #061723; }
+.access-gate::before { content: ''; position: fixed; inset: 0; pointer-events: none; background: linear-gradient(90deg, #04131da0, #04131d45), url('../assets/maskwa-login.jpg') center / cover no-repeat; }
+.access-card { position: relative; width: min(440px, 100%); padding: 38px; box-sizing: border-box; border: 1px solid #0094c960; border-top: 3px solid #0094c9; background: #09426af2; color: #fff; box-shadow: 0 24px 100px #0008; border-radius: 14px; }
+.access-mark { font-size: 24px; font-weight: 900; color: #fff; margin-bottom: 24px; display: flex; align-items: center; gap: 15px; }
+.access-card h1 { font-size: clamp(34px, 8vw, 48px); letter-spacing: -2px; line-height: 1.08; margin: 0 0 16px; }
+.access-description, .access-note { font-size: 14px; line-height: 1.6; color: #d4eaf4; }
+.access-card form { display: grid; gap: 12px; margin-top: 26px; }
+.access-card label { font-size: 12px; font-weight: 600; }
+.access-card input { width: 100%; box-sizing: border-box; padding: 14px; border: 1px solid #8cd5ef80; border-radius: 6px; background: #041725; color: #fff; font: inherit; }
+.access-card input:focus-visible, .access-card button:focus-visible { outline: 2px solid #0094c9; outline-offset: 3px; }
+.access-card button { padding: 15px 17px; border: 0; border-radius: 6px; background: #0094c9; color: #03101b; font: inherit; font-weight: 800; cursor: pointer; display: flex; justify-content: space-between; }
+.access-card button:disabled { opacity: .55; cursor: wait; }
+.access-status { font-size: 13px; line-height: 1.5; min-height: 2.5em; color: #b6eaff; margin: 16px 0; }
+.access-note { font-size: 12px; border-top: 1px solid #8cd5ef50; padding-top: 18px; margin-bottom: 0; }
+@media (max-width: 480px) { .access-gate { padding: 16px; } .access-card { padding: 28px 24px; } }
+@media (min-width: 900px) { .access-gate { justify-items: start; padding-inline: clamp(32px, 8vw, 144px); } }

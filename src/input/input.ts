@@ -65,7 +65,7 @@ export const DEFAULT_BINDINGS: Bindings = {
     airRollLeft: 'KeyQ',
     airRollRight: 'KeyE',
     ballCam: 'KeyC',
-    reset: 'KeyR',
+    reset: '',
     menu: 'Escape',
   },
 };
@@ -89,11 +89,18 @@ export function loadBindings(): Bindings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULT_BINDINGS);
-    const parsed = JSON.parse(raw) as Partial<Bindings>;
-    return {
+    const parsed = JSON.parse(raw) as Partial<Bindings> & { version?: number };
+    const bindings: Bindings = {
       gamepad: { ...DEFAULT_BINDINGS.gamepad, ...(parsed.gamepad ?? {}) },
       keyboard: { ...DEFAULT_BINDINGS.keyboard, ...(parsed.keyboard ?? {}) },
     };
+    // Clear the former default once, while preserving other customized controls.
+    // A player can still deliberately bind R again after this migration.
+    if (parsed.version !== 2 && bindings.keyboard.reset === 'KeyR') {
+      bindings.keyboard.reset = '';
+      saveBindings(bindings);
+    }
+    return bindings;
   } catch {
     return structuredClone(DEFAULT_BINDINGS);
   }
@@ -101,7 +108,7 @@ export function loadBindings(): Bindings {
 
 export function saveBindings(b: Bindings): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(b));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...b, version: 2 }));
   } catch {
     /* storage unavailable; bindings stay in memory */
   }
@@ -109,12 +116,12 @@ export function saveBindings(b: Bindings): void {
 
 export type Captured = { kind: 'gamepad'; button: number } | { kind: 'key'; code: string };
 
-function pressed(gp: Gamepad, i: number): boolean {
+function pressed(gp: Pick<Gamepad, 'buttons'>, i: number): boolean {
   const b = gp.buttons[i];
   return !!b && (b.pressed || b.value > 0.5);
 }
 
-function value(gp: Gamepad, i: number): number {
+function value(gp: Pick<Gamepad, 'buttons'>, i: number): number {
   const b = gp.buttons[i];
   if (!b) return 0;
   return b.value > 0 ? b.value : b.pressed ? 1 : 0;
@@ -138,11 +145,14 @@ export class InputManager {
   private prevButtons: boolean[] = [];
   private capture: ((c: Captured) => void) | null = null;
   private blockJump = false;
+  private readonly consumedKeys = new Set<string>();
+  private readonly consumedButtons = new Set<number>();
 
   onControllerChange: ((name: string | null) => void) | null = null;
 
   constructor(private readonly settings: Settings) {
     window.addEventListener('keydown', (e) => {
+      if (this.consumedKeys.has(e.code)) { e.preventDefault(); return; }
       if (isTextField(e.target)) return; // typing a name or room code
       if (this.capture) {
         e.preventDefault();
@@ -153,10 +163,15 @@ export class InputManager {
       if (e.repeat) return;
       this.keys.add(e.code);
       this.tapped.add(e.code); // latched until the next poll so short taps survive slow frames
-      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+      // Enter is handled by menu navigation. Native button activation can otherwise fire
+      // the last mouse-focused button as well as the current keyboard/gamepad selection.
+      if (['Space', 'Enter', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
     });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => this.keys.clear());
+    window.addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      this.consumedKeys.delete(e.code);
+    });
+    window.addEventListener('blur', () => { this.keys.clear(); this.consumedKeys.clear(); });
 
     window.addEventListener('gamepadconnected', (e) => {
       if (this.gamepadIndex === null) this.gamepadIndex = e.gamepad.index;
@@ -196,6 +211,41 @@ export class InputManager {
   /** Ignore the jump button until it is released, so the press that closed the menu does not jump. */
   blockJumpUntilRelease(): void {
     this.blockJump = true;
+  }
+
+  /** Consume only the UI key being used, leaving held movement keys intact. */
+  consumeKeyUntilRelease(code: string): void {
+    this.keys.delete(code);
+    this.tapped.delete(code);
+    this.consumedKeys.add(code);
+  }
+
+  /** Do not reuse the menu's opening Enter / A press as a gameplay action. */
+  consumeMenuAcceptUntilRelease(): void {
+    if (this.keys.has('Enter') || this.tapped.has('Enter')) this.consumeKeyUntilRelease('Enter');
+    const gp = this.currentGamepad();
+    if (gp && pressed(gp, NAV.accept)) this.consumedButtons.add(NAV.accept);
+  }
+
+  /** Consume a modal's Back / menu dismissal without changing held movement. */
+  consumeMenuBackUntilRelease(): void {
+    for (const code of ['Backspace', this.bindings.keyboard.menu]) {
+      if (code && (this.keys.has(code) || this.tapped.has(code))) this.consumeKeyUntilRelease(code);
+    }
+    const gp = this.currentGamepad();
+    for (const button of [NAV.back, this.bindings.gamepad.menu]) {
+      if (gp && pressed(gp, button)) this.consumedButtons.add(button);
+    }
+  }
+
+  /** An intentional UI chord: hold the modifier first, then newly press its action. */
+  consumeGamepadChord(modifier: number, action: number): boolean {
+    const gp = this.currentGamepad();
+    if (!gp || !this.prevButtons[modifier] || !pressed(gp, modifier) ||
+        !pressed(gp, action) || this.prevButtons[action]) return false;
+    // Preserve the already-held modifier, which may also be a driving binding.
+    this.consumedButtons.add(action);
+    return true;
   }
 
   private finishCapture(c: Captured): void {
@@ -244,10 +294,19 @@ export class InputManager {
   }
 
   poll(): FrameInput {
-    const gp = this.currentGamepad();
+    const rawPad = this.currentGamepad();
+    for (const button of this.consumedButtons) {
+      if (!rawPad || !pressed(rawPad, button)) this.consumedButtons.delete(button);
+    }
+    const gp = rawPad && this.consumedButtons.size ? {
+      axes: rawPad.axes,
+      buttons: rawPad.buttons.map((button, i) => this.consumedButtons.has(i)
+        ? { pressed: false, touched: false, value: 0 } : button),
+      id: rawPad.id,
+    } : rawPad;
 
     if (gp) {
-      const now = gp.buttons.map((_, i) => pressed(gp, i));
+      const now = rawPad!.buttons.map((_, i) => pressed(rawPad!, i));
       if (this.capture) {
         for (let i = 0; i < now.length; i++) {
           if (now[i] && !this.prevButtons[i]) {
@@ -273,7 +332,7 @@ export class InputManager {
     const k = this.bindings.keyboard;
     // One-shot actions: a key counts if it is held now OR was tapped since the last poll.
     const typing = isTextField(document.activeElement);
-    const key = (code: string) => !typing && (this.keys.has(code) || this.tapped.has(code));
+    const key = (code: string) => !!code && !typing && (this.keys.has(code) || this.tapped.has(code));
     const reset = !this.capture && (key(k.reset) || (!!gp && pressed(gp, g.reset)));
     const toggleCam = !this.capture && (key(k.ballCam) || (!!gp && pressed(gp, g.ballCam)));
     const menu = !this.capture && (key(k.menu) || (!!gp && pressed(gp, g.menu)));
@@ -312,7 +371,7 @@ export class InputManager {
     return frame;
   }
 
-  private readGamepad(gp: Gamepad): CarInput {
+  private readGamepad(gp: Pick<Gamepad, 'buttons' | 'axes'>): CarInput {
     const g = this.bindings.gamepad;
     const c = this.settings.controls;
     const lxSteer = this.stick(gp.axes[0] ?? 0, c.steeringSensitivity);

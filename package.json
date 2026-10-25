@@ -8,15 +8,27 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "server:build": "tsc -p tsconfig.server.json && node server/build.mjs",
+    "server:start": "node .server-build/index.js",
+    "password:hash": "node server/password.mjs",
+    "test:headless": "node qa/run-headless.mjs headless",
+    "test:modes": "node qa/run-headless.mjs modes",
+    "test:sessions": "node qa/run-headless.mjs sessions",
+    "test:transport": "node qa/transport-regression.mjs",
+    "test:retry": "node qa/run-retry.mjs",
+    "test:private": "node qa/run-private.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
     "peerjs": "^1.5.5",
-    "three": "^0.186.0"
+    "three": "^0.186.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.4",
     "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.0"
   }

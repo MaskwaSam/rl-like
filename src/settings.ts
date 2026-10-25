@@ -3,7 +3,10 @@
  * Values are in RL's own units (uu, degrees) and converted where consumed.
  */
 
+import { MASKWA_ARENA, normalizeArena } from './arenas';
+
 export interface Settings {
+  arena: { style: number };
   camera: {
     /** Horizontal field of view in degrees. RL: 60–110, default 110. */
     fov: number;
@@ -29,6 +32,8 @@ export interface Settings {
   audio: {
     /** Master volume 0–1. */
     volume: number;
+    /** Silence output without replacing the chosen volume. */
+    muted: boolean;
   };
   graphics: {
     /** 0 Low, 1 Medium, 2 High. See GRAPHICS_DEFS. */
@@ -42,10 +47,11 @@ export interface Settings {
 
 /** Defaults follow the most common pro camera: FOV 110, distance 270, height 100, angle -3, stiffness 0.45. */
 export const DEFAULT_SETTINGS: Settings = {
+  arena: { style: MASKWA_ARENA },
   camera: { fov: 110, distance: 270, height: 100, angle: -3, stiffness: 0.45 },
   controls: { steeringSensitivity: 1.0, aerialSensitivity: 1.0, deadzone: 0.2, dodgeDeadzone: 0.5 },
-  audio: { volume: 0.6 },
-  graphics: { quality: 1 },
+  audio: { volume: 0.6, muted: false },
+  graphics: { quality: 0 },
   car: { body: 0 },
 };
 
@@ -179,7 +185,7 @@ export const GRAPHICS_DEFS: SettingDef[] = [
     section: 'graphics',
     key: 'quality',
     label: 'Graphics quality',
-    description: 'Low is the original lightweight look, for older laptops. Medium adds smooth edges and glowing lights. High adds real shadows.',
+    description: 'Low skips antialiasing, bloom and real shadows for older laptops. Medium adds smooth edges and glowing lights. High adds real shadows.',
     min: 0,
     max: 2,
     step: 1,
@@ -195,16 +201,18 @@ export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return s;
-    const parsed = JSON.parse(raw) as Partial<Record<SettingSection, Record<string, number>>>;
-    for (const section of ['camera', 'controls', 'audio', 'graphics', 'car'] as SettingSection[]) {
-      const target = s[section] as unknown as Record<string, number>;
+    const parsed = JSON.parse(raw) as Partial<Record<SettingSection, Record<string, unknown>>>;
+    for (const section of ['arena', 'camera', 'controls', 'audio', 'graphics', 'car'] as SettingSection[]) {
+      const target = s[section] as unknown as Record<string, unknown>;
       for (const [k, v] of Object.entries(parsed[section] ?? {})) {
-        if (k in target && typeof v === 'number' && Number.isFinite(v)) target[k] = v;
+        if (typeof target[k] === 'number' && typeof v === 'number' && Number.isFinite(v)) target[k] = v;
+        else if (typeof target[k] === 'boolean' && typeof v === 'boolean') target[k] = v;
       }
     }
   } catch {
     /* fall through to defaults */
   }
+  s.arena.style = normalizeArena(s.arena.style);
   return s;
 }
 

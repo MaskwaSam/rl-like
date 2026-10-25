@@ -1,0 +1,213 @@
+/* Daylight arena presentation. Existing controls and focus/navigation remain code-native. */
+#controllerNoticeStatus { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); clip-path: inset(50%); white-space: nowrap; border: 0; pointer-events: none; }
+#controllerNotice { position: fixed; left: 30px; bottom: 105px; z-index: 11; display: flex; align-items: center; gap: 10px; width: max-content; max-width: min(420px, calc(100vw - 240px)); box-sizing: border-box; padding: 12px 15px; color: #edf4fb; background: #08141ff0; border: 1px solid #b9e3ff88; border-left: 4px solid #87d7a1; border-radius: 4px; box-shadow: 0 12px 34px #0008; font-size: 14px; line-height: 1.3; pointer-events: none; opacity: 0; transition: opacity 220ms ease; }
+#controllerNotice[hidden] { display: none; }
+#controllerNotice.visible { opacity: 1; }
+#controllerNotice[data-state="disconnected"] { border-left-color: #ff9b83; }
+.controller-notice-icon { display: grid; place-items: center; flex: none; width: 25px; height: 25px; border-radius: 50%; background: #87d7a126; color: #a7edbd; }
+#controllerNotice[data-state="disconnected"] .controller-notice-icon { background: #ff9b8326; color: #ffb19d; }
+#controllerNoticeTitle { display: block; }
+#controllerNoticeDetail { display: block; margin-top: 3px; color: #b9c6d4; font-size: 11px; overflow-wrap: anywhere; max-height: 3.9em; overflow: hidden; }
+@media (min-width: 561px) and (max-width: 800px) {
+  #controllerNotice { left: 16px; }
+}
+@media (max-width: 560px) {
+  #controllerNotice { top: 82px; bottom: auto; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 28px); padding: 10px 12px; gap: 8px; font-size: 12px; }
+  .controller-notice-icon { width: 22px; height: 22px; }
+  #controllerNoticeDetail { font-size: 10px; }
+  /* The optional help card stacks below feedback instead of covering it. */
+  body:has(#controllerNotice:not([hidden])) #controlsReminder { top: 184px; max-height: calc(100dvh - 312px); }
+}
+@media (max-height: 580px) and (min-width: 561px) {
+  #controllerNotice { top: 82px; bottom: auto; left: auto; right: 15px; max-width: min(300px, calc(100vw - 340px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #controllerNotice { transition: none; }
+}
+#leaveConfirmation { width: min(440px, calc(100vw - 36px)); max-height: calc(100dvh - 36px); overflow: auto; box-sizing: border-box; padding: 26px; color: #edf4fb; background: #08141ff7; border: 1px solid #b9e3ff77; border-radius: 4px; box-shadow: 0 15px 70px #0009; font-family: inherit; }
+#leaveConfirmation::backdrop { background: #020a14bc; }
+#leaveConfirmation h2 { margin: 0 0 14px; font-size: 26px; }
+#leaveConfirmation p { margin: 0 0 23px; line-height: 1.55; font-size: 16px; }
+.leave-confirmation-choices { display: flex; flex-wrap: wrap; gap: 12px; }
+.leave-confirmation-choices button { flex: 1 1 145px; min-height: 46px; }
+#leaveConfirmation button:focus { outline: 3px solid #b9e3ff; outline-offset: 3px; }
+#leaveConfirmation .danger { background: #8e292f; color: white; border-color: #f29d9d; }
+@media (max-width: 560px) { #leaveConfirmation { padding: 22px; } }
+#controlsReminder { position: fixed; top: 88px; right: 18px; z-index: 12; width: 284px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 190px); overflow-y: auto; padding: 12px; box-sizing: border-box; color: #edf4fb; background: #08141feb; border: 1px solid #b9e3ff66; border-radius: 3px; font-size: 12px; }
+#controlsReminder[hidden] { display: none; }
+.controls-reminder-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.controls-reminder-header strong { font-size: 17px; }
+#closeControlsReminder { min-height: 32px; padding: 4px 10px; background: #284558; border: 1px solid #b9e3ff99; color: white; cursor: pointer; }
+#controlsReminder :focus-visible { outline: 2px solid #b9e3ff; outline-offset: 2px; }
+.controls-reminder-dismiss { margin: 7px 0; line-height: 1.4; color: #c4d4df; font-size: 11px; }
+#controlsReminder summary { cursor: pointer; padding: 3px 0 7px; }
+.controls-reminder-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 67px; gap: 5px; padding: 4px 0; overflow-wrap: anywhere; }
+.controls-reminder-row[data-action="headings"] { color: #b9c6d4; font-size: 10px; }
+#controlsReminder details p { margin: 7px 0 0; color: #b9c6d4; font-size: 10px; }
+@media (max-width: 560px) {
+  #controlsReminder { top: 82px; right: 10px; width: 250px; padding: 9px; max-height: calc(100dvh - 210px); }
+  #closeControlsReminder { min-height: 36px; }
+}
+@media (max-height: 580px) and (min-width: 561px) {
+  #controlsReminder { top: 80px; left: 18px; right: auto; max-height: calc(100dvh - 160px); }
+}
+@media (max-height: 420px) and (max-width: 560px) {
+  /* Short phones need two columns; stacking would hide the help card's Close button. */
+  #controllerNotice { left: auto; right: 10px; transform: none; max-width: calc(50vw - 15px); padding: 8px 9px; gap: 6px; }
+  body:has(#controllerNotice:not([hidden])) #controlsReminder { top: 82px; left: 10px; right: auto; width: calc(50vw - 15px); max-height: calc(100dvh - 160px); }
+  body:has(#controllerNotice:not([hidden])) .controls-reminder-header { gap: 6px; }
+  body:has(#controllerNotice:not([hidden])) .controls-reminder-header strong { font-size: 14px; }
+  body:has(#controllerNotice:not([hidden])) #closeControlsReminder { padding: 4px 6px; }
+}
+:root { --panel: rgba(12, 22, 33, .93); --muted: #b9c6d4; --focus: #b9e3ff; --accent: #e7ae61; }
+html, body { font-family: 'Avenir Next Condensed', 'Arial Narrow', system-ui, sans-serif; }
+.menu { padding: 28px; box-sizing: border-box; background: rgba(6, 16, 27, .36); }
+.menu::before { display: none; }
+.menu.main-screen { justify-content: flex-start; background: linear-gradient(90deg, rgba(4, 14, 24, .56), rgba(4, 14, 24, .05) 58%, transparent); }
+.menu-panel { border-radius: 3px; border-color: rgba(217, 236, 248, .2); box-shadow: 0 18px 65px #06121b55; }
+.menu-panel.main-panel { min-width: 0; width: 310px; padding: 0 8px; border: 0; background: none; box-shadow: none; backdrop-filter: none; gap: 6px; }
+.main-panel .menu-title { font-size: 42px; font-style: italic; font-weight: 600; letter-spacing: 3px; color: #fff; text-shadow: 0 2px 8px #10223180; white-space: nowrap; }
+.main-panel .menu-subtitle { font-size: 12px; letter-spacing: 1.5px; color: #edf4fb; margin-bottom: 20px; }
+.main-panel .menu-stack { gap: 6px; }
+.menu-button { border-radius: 2px; background: rgba(10, 21, 32, .86); border-color: rgba(203, 221, 236, .18); }
+.menu-button.primary { color: #1d3b51; background: linear-gradient(#ecf7ff, #a7d4f4); border-color: #e2f4ff; }
+.menu-button:hover { border-color: #b9e3ff; }
+.menu-button.primary:hover { filter: brightness(1.06); }
+.main-panel .menu-button { padding: 6px 15px; min-height: 42px; font-size: 23px; text-transform: uppercase; font-weight: 600; border: 0; clip-path: polygon(1.5% 0, 100% 0, 96% 100%, 0 100%); }
+.main-panel .menu-button.focused { outline: 0; box-shadow: inset 4px 0 #eaf6ff; background: linear-gradient(#ecf7ff, #a7d4f4); color: #1d3b51; }
+.focused { outline-color: #c9eaff; box-shadow: 0 0 0 4px #c9eaff15; }
+.main-panel .menu-hint { margin-top: 24px; font-size: 12px; max-width: 290px; color: #edf3fb; line-height: 1.5; text-shadow: 0 1px 5px #000; }
+.main-panel .fullscreen-hint { margin: 4px 0 0; }
+.menu-hint kbd, .menu-hint .btn-glyph { border-radius: 2px; }
+.build-stamp { color: #e0eaf0; background: #091a29b3; padding: 5px 8px; border-radius: 2px; }
+.menu.garage { padding-bottom: 4vh; }
+.garage-panel { background: rgba(8, 20, 31, .92); }
+.field-row.focused, .slider-row.focused { border-color: #b9e3ff80; background: #b9e3ff0c; }
+.menu-input:focus { border-color: #b9e3ff; box-shadow: 0 0 0 3px #b9e3ff20; }
+#score { top: 0; display: flex; align-items: center; gap: 0; background: #10202ed9; font-size: 32px; font-weight: 500; }
+#score .blue, #score .orange { color: white; padding: 4px 20px; min-width: 30px; text-align: center; }
+#score .blue { background: #285dce; }
+#score .orange { background: #c97d36; }
+.score-label { font-size: 12px; letter-spacing: 2px; padding: 0 18px; }
+#clock { top: 49px; padding: 3px 15px; background: #10202ecc; font-size: 19px; font-weight: 500; }
+#hud.freeplay #score, #hud.freeplay #clock { display: none; }
+#bottomleft { left: 30px; bottom: 23px; gap: 4px; max-width: 270px; }
+#camMode { padding: 0; border: 0; background: none; border-radius: 0; font-size: 25px; font-weight: 500; }
+#camMode.on { color: #f69c62; }
+#camMode::before { content: '●'; font-size: 15px; margin-right: 7px; vertical-align: 2px; }
+#controller { font-size: 11px; opacity: .85; }
+#controller .warn { color: #dce6ef; }
+#bottomright { right: 35px; bottom: 23px; gap: 12px; }
+#boostGauge { width: 148px; height: 148px; border-radius: 50%; background: radial-gradient(circle, #213652bb 25%, #203a5833 55%, transparent 70%); }
+#boostGauge svg { transform: rotate(-92deg); }
+#boostGauge .track, #boostGauge .fill { stroke-width: 9; stroke-linecap: butt; }
+#boostGauge .track { stroke: #eaf3ff66; }
+#boostGauge .fill { stroke: #efb858; }
+#boostValue { font-size: 48px; font-weight: 300; color: #f8fbff; text-shadow: 0 0 6px #ffffff80; }
+#boostLabel { bottom: 29px; font-size: 10px; }
+#speed { min-width: 65px; margin-bottom: 12px; }
+#speed .value { font-size: 24px; font-weight: 500; }
+#speed .unit { font-size: 10px; }
+#playHints { display: none; position: absolute; bottom: 60px; left: 50%; transform: translateX(-50%); padding: 7px 12px; background: #14263abf; white-space: nowrap; font-size: 12px; letter-spacing: .6px; }
+#hud.freeplay #playHints { display: block; }
+#playHints kbd { font-family: inherit; background: #edf4fa; color: #233448; border-radius: 2px; padding: 0 4px; margin-left: 12px; text-shadow: none; }
+@media (max-width: 800px) {
+  .menu { padding: 20px; }
+  .menu-panel { min-width: 0; width: min(100%, 560px); padding: 22px; box-sizing: border-box; }
+  .menu-panel.wide { min-width: 0; width: 100%; max-width: 680px; }
+  .menu-panel.main-panel { width: 285px; }
+  .menu-panel.garage-panel { min-width: 0; }
+  .slider-row { grid-template-columns: minmax(100px, 1fr) 30px 66px 30px; gap: 6px; padding: 7px 0; }
+  .slider-bar { display: none; }
+  .bind-row { grid-template-columns: minmax(90px, 1fr) minmax(60px, 1fr) minmax(65px, 1fr); font-size: 12px; }
+  .bind-cell { padding: 8px 4px; font-size: 12px; }
+  #playHints { bottom: 23px; font-size: 10px; }
+  #bottomleft { left: 16px; bottom: 15px; max-width: 180px; }
+  #bottomright { right: 15px; bottom: 12px; }
+  #boostGauge { width: 110px; height: 110px; }
+  #boostValue { font-size: 38px; }
+  #boostLabel { bottom: 19px; }
+}
+@media (max-width: 560px) {
+  .main-panel .menu-title { font-size: 36px; }
+  .menu-panel.main-panel { width: 260px; }
+  .menu-panel { max-height: calc(100dvh - 50px); overflow: auto; }
+  .menu { background-color: #04122066; }
+  .build-stamp { font-size: 9px; right: 8px; bottom: 6px; }
+  .lobby-teams { gap: 6px; }
+  .field-row { flex-direction: column; align-items: stretch; gap: 4px; }
+  #controller { display: none; }
+  #camMode { font-size: 18px; }
+  #playHints { bottom: 120px; }
+  #speed { display: none; }
+}
+@media (max-height: 580px) and (min-width: 561px) {
+  .main-panel .menu-title { font-size: 34px; }
+  .main-panel .menu-subtitle { margin-bottom: 6px; }
+  .main-panel .menu-button { min-height: 34px; font-size: 20px; padding: 4px 15px; }
+  .main-panel .menu-hint { margin-top: 10px; }
+  .menu-panel:not(.main-panel) { max-height: calc(100dvh - 70px); overflow: auto; }
+}
+
+/* Private rooms keep the invite readable across desktop and phone layouts. */
+.multiplayer-panel { max-height: calc(100dvh - 56px); overflow-y: auto; box-sizing: border-box; }
+.multiplayer-section { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-top: 1px solid #d9ecf833; }
+.multiplayer-section[hidden] { display: none; }
+.multiplayer-heading { margin: 0; font-size: 17px; font-weight: 600; }
+.server-options-toggle { display: flex; align-items: center; gap: 12px; }
+.server-toggle-state { margin-left: auto; color: var(--muted); font-size: 13px; }
+.server-toggle-track { flex: 0 0 38px; height: 22px; border-radius: 12px; background: #283b4b; border: 1px solid #b9e3ff66; }
+.server-toggle-track::after { content: ''; display: block; width: 16px; height: 16px; margin: 3px; border-radius: 50%; background: #edf4fb; }
+.server-options-toggle[aria-checked="true"] .server-toggle-track { background: #447ca0; }
+.server-options-toggle[aria-checked="true"] .server-toggle-track::after { transform: translateX(16px); }
+.browser-section .menu-hint { margin: 0; }
+.server-modes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.server-modes .menu-button { min-width: 0; padding: 10px 6px; }
+.room-invite { padding: 20px 16px; border: 1px solid #b9e3ff66; background: #a7d4f410; text-align: center; }
+.room-code-label { font-size: 12px; letter-spacing: 3px; color: var(--muted); }
+.room-join-code { margin: 8px 0; font-family: ui-monospace, 'SFMono-Regular', monospace; font-size: clamp(32px, 7vw, 64px); font-weight: 800; letter-spacing: .08em; color: #f0f8ff; user-select: text; overflow-wrap: anywhere; line-height: 1.15; }
+.room-expiry { color: var(--muted); font-size: 12px; }
+.room-share-actions { justify-content: center; margin-top: 16px; }
+.room-share-notice { min-height: 20px; }
+.room-owner-actions { padding-top: 10px; border-top: 1px solid #d9ecf833; }
+.clipboard-fallback { position: fixed; left: -9999px; top: 0; }
+@media (max-width: 560px) {
+  .room-invite { padding: 16px 8px; }
+  .room-join-code { font-size: clamp(24px, 8vw, 42px); letter-spacing: .025em; }
+  .room-share-actions, .room-owner-actions { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .room-share-actions .menu-button, .room-owner-actions .menu-button { width: 100%; min-height: 44px; }
+  .lobby-team-title { font-size: 14px; }
+  .lobby-player { overflow-wrap: anywhere; }
+  .server-modes .menu-button { min-height: 44px; }
+}
+.multiplayer-panel, .lobby-panel { max-height: calc(100dvh - 80px); overflow-y: auto; }
+@media (max-width: 560px) {
+  .multiplayer-panel, .lobby-panel { max-height: calc(100dvh - 50px); }
+  .lobby-team { min-width: 0; padding: 10px 6px; }
+  .lobby-player { padding: 6px 4px; }
+}
+
+/* Arena selection leaves the live 3D overview visible beside the controls. */
+.menu.arena-screen { justify-content: flex-start; background: linear-gradient(90deg, #04122055, transparent 65%); }
+.menu-panel.arena-panel { min-width: 0; width: 340px; max-width: 100%; max-height: calc(100dvh - 80px); overflow-y: auto; box-sizing: border-box; padding: 24px; background: #08141fe0; gap: 14px; }
+.arena-selection-hint { margin: 0; }
+.arena-choice { display: flex; flex-direction: column; gap: 7px; width: 100%; padding: 15px; }
+.arena-choice-name { font-size: 20px; line-height: 1.1; }
+.arena-choice-description { font-size: 13px; font-weight: 400; line-height: 1.4; }
+.arena-choice-selected { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+.arena-choice-selected[hidden] { display: none; }
+.arena-choice:disabled { opacity: .8; }
+.lobby-arena .lobby-info { justify-content: flex-start; }
+.lobby-title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.lobby-title-row .menu-title { margin: 0; }
+.lobby-copy-code { min-height: 44px; margin-left: auto; padding: 8px 14px; font-size: 15px; }
+.lobby-title-row .code { user-select: text; }
+@media (max-width: 560px) {
+  .lobby-title-row { gap: 8px; }
+  .lobby-copy-code { min-height: 44px; }
+  .menu.arena-screen { align-items: flex-end; padding: 16px 16px 28px; background: none; }
+  .menu-panel.arena-panel { width: 100%; max-height: min(70dvh, calc(100dvh - 50px)); padding: 18px; gap: 10px; }
+  .arena-choices { gap: 8px; }
+  .arena-choice { min-height: 44px; padding: 11px 14px; gap: 5px; }
+  .arena-choice-name { font-size: 18px; }
+}

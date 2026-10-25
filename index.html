@@ -3,7 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RL-like</title>
+    <title>Car Soccer</title>
+    <script>
+      // Strip invite data synchronously, before deferred game code or optional analytics run.
+      (() => {
+        const invite = new URLSearchParams(location.hash.slice(1)).get('join');
+        if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+        if (invite === null) return;
+        const request = fetch('/game/invite', { method: 'POST', credentials: 'same-origin', cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: invite }) });
+        request.catch(() => {});
+        window.__carInviteRequest = request; // response only; never expose or persist the token
+      })();
+    </script>
     <style>
       :root {
         --bg: #05080f;
@@ -43,6 +55,14 @@
       #controller .ok { color: #7CFC9A; } #controller .warn { color: #ffd166; }
 
       #bottomright { position: absolute; right: 22px; bottom: 16px; display: flex; align-items: flex-end; gap: 18px; }
+      #bottomright.retry-mode { right: max(16px, env(safe-area-inset-right)); bottom: max(16px, env(safe-area-inset-bottom)); }
+      #bottomright.retry-mode > #speed, #bottomright.retry-mode > #boostGauge { display: none; }
+      #matchRetry { pointer-events: auto; min-width: 140px; min-height: 64px; padding: 10px 20px; text-align: center; font-size: 24px; line-height: 1.2; touch-action: manipulation; text-shadow: none; }
+      #matchRetry[hidden] { display: none; }
+      #matchRetry:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+      #matchRetry .retry-hint { display: block; margin-top: 4px; font-size: 11px; font-weight: 500; }
+      #hud.retry-visible #bottomleft { max-width: calc(100vw - 200px - env(safe-area-inset-right)); }
+
       #speed { text-align: right; font-variant-numeric: tabular-nums; margin-bottom: 14px; min-width: 110px; }
       #speed .value { font-size: 34px; font-weight: 800; line-height: 1; transition: font-size .12s ease-out; }
       #speed .unit { font-size: 12px; opacity: .7; letter-spacing: 1px; }
@@ -142,7 +162,7 @@
       .bind-row { display: grid; grid-template-columns: 220px 150px 150px; gap: 8px; align-items: center; font-size: 14px; padding: 2px 4px; }
       .bind-row:nth-child(even):not(.bind-head) { background: rgba(255,255,255,.025); border-radius: 6px; }
       .bind-head { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: 1px; }
-      .bind-cell { font-size: 14px; padding: 8px 10px; text-align: center; font-weight: 500; }
+      .bind-cell { align-self: stretch; font-size: 14px; padding: 8px 10px; text-align: center; font-weight: 500; }
       .bind-cell.capturing { background: #5a4a10; border-color: #ffd166; color: #fff; }
       .slider-list { display: flex; flex-direction: column; gap: 6px; }
       .slider-row { display: grid; grid-template-columns: 270px 40px 90px 40px 1fr; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 10px; font-size: 14px; border: 1px solid transparent; }
@@ -158,7 +178,7 @@
   <body>
     <div id="app"></div>
     <div id="hud" hidden>
-      <div id="score"><span class="blue">BLUE 0</span> &nbsp;–&nbsp; <span class="orange">0 ORANGE</span></div>
+      <div id="score"><span class="blue" aria-label="Blue 0">0</span><span class="score-label">CAR SOCCER</span><span class="orange" aria-label="Orange 0">0</span></div>
       <div id="clock" hidden>5:00</div>
       <div id="topright"><div id="ping" hidden>— ms</div><div id="fps">— fps</div></div>
       <div id="banner"><div class="title"></div><div class="goalSpeed"></div><div class="sub"></div></div>
@@ -166,18 +186,21 @@
         <div id="camMode" class="on">BALL CAM</div>
         <div id="controller">Loading…</div>
       </div>
+      <div id="playHints">FREE PLAY <span id="resetHint" hidden><kbd></kbd> RESET </span><kbd id="ballCamHintKey">C</kbd> BALL CAM <kbd id="menuHintKey">ESC</kbd> MENU</div>
       <div id="bottomright">
+        <button id="matchRetry" class="menu-button primary" type="button" aria-label="Retry match" hidden><span id="retryLabel">Retry</span><span class="retry-hint" aria-hidden="true">ENTER / A</span></button>
         <div id="speed"><div class="value">0</div><div class="unit">KM/H</div></div>
         <div id="boostGauge">
           <svg viewBox="0 0 132 132">
-            <circle class="track" cx="66" cy="66" r="56" />
-            <circle id="boostFill" class="fill" cx="66" cy="66" r="56" />
+            <defs><mask id="boostSegments"><circle cx="66" cy="66" r="56" fill="none" stroke="white" stroke-width="16" stroke-dasharray="3 1.4" /></mask></defs>
+            <circle class="track" cx="66" cy="66" r="56" stroke-dasharray="274.46 351.86" mask="url(#boostSegments)" />
+            <circle id="boostFill" class="fill" cx="66" cy="66" r="56" mask="url(#boostSegments)" />
           </svg>
           <div id="boostValue">33</div>
           <div id="boostLabel">BOOST</div>
         </div>
       </div>
     </div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/access.ts"></script>
   </body>
 </html>

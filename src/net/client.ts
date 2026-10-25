@@ -9,16 +9,20 @@ import type { Peer } from 'peerjs';
 import { Quaternion, Vector3 } from 'three';
 import type { Team } from '../sim/car';
 import { CAR_FLAG_BOOSTING, CAR_FLAG_DEMOED, CAR_FLAG_SUPERSONIC } from '../sim/car';
-import { Game, type BodyState, type GameConfig, type GameState } from '../sim/game';
+import { Game, type BodyState, type GameConfig, type GameMetaState, type GameState } from '../sim/game';
 import { TICK_DT, TICK_RATE } from '../sim/rl';
 import { ByteReader, quantizeInput } from '../sim/state';
 import { EMPTY_INPUT, type CarInput } from '../input/types';
 import { DEFAULT_MATCH_SETTINGS, PROTOCOL_VERSION, Packet, clampBody, encodeInputs, encodePing, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
-import { joinRoom, type Link } from './transport';
+import { joinRoom } from './transport';
+import type { GameLink } from './channel';
+import type { ServerRoomInfo } from './protocol';
 import { liveCarState, type CarRenderState, type LobbyState, type Session } from './session';
 
 /** How many ticks of input the host should have in hand when it simulates a tick. */
 const TARGET_LEAD = 3;
+/** Bound prediction/replay work even if the connection temporarily reports a very large RTT. */
+const MAX_PREDICTION_LEAD = 120;
 /** Beyond this disagreement in lead we jump the clock instead of nudging it. */
 const HARD_RESYNC_TICKS = 40;
 /** Remote cars are drawn this many ticks behind the newest snapshot so there is always a next sample. */
@@ -73,12 +77,15 @@ export class ClientSession implements Session {
   private status = 'Connecting…';
   private synced = false;
   private startingGame = false;
+  private gameGeneration = 0;
   private ended = false;
 
   private readonly pending = new Map<number, CarInput>();
   private lastLocalInput: CarInput = EMPTY_INPUT;
   private ackedInputTick = -1;
   private readonly history = new Map<number, Float32Array>();
+  private readonly metaHistory = new Map<number, GameMetaState>();
+  private bufferedSnapshot: { state: GameState; lastInputTick: number } | null = null;
   private accumulator = 0;
   private timeScale = 1;
   private lastSnapshotTick = -1;
@@ -87,23 +94,25 @@ export class ClientSession implements Session {
   private latestSnapAt = 0;
   private readonly remote = new Map<number, RemoteBuffer>();
   private remoteRenderTick = 0;
-  private lastPingSent = 0;
+  private lastPingSent = -Infinity;
   private readonly rttSamples: number[] = [];
 
   private readonly smoothCarPos = new Vector3();
   private readonly smoothCarQuat = new Quaternion();
   private readonly smoothBallPos = new Vector3();
   private readonly inputs = new Map<number, CarInput>();
+  private serverInfo: ServerRoomInfo | undefined;
+  private owner = false;
 
   private constructor(
-    private readonly peer: Peer,
-    private readonly link: Link,
+    private readonly peer: Peer | null,
+    private readonly link: GameLink,
     readonly code: string,
   ) {
     link.onCtrl = (msg) => this.onCtrl(msg);
     link.onFast = (buf) => this.onPacket(buf);
     link.onClose = () => this.end('Disconnected from the host');
-    peer.on('error', (err) => {
+    peer?.on('error', (err) => {
       const type = (err as { type?: string }).type;
       if (type === 'peer-unavailable' || type === 'webrtc' || type === 'network') return;
       this.end(`Connection error: ${err.message}`);
@@ -113,6 +122,10 @@ export class ClientSession implements Session {
   /** Connect, say hello, wait to be admitted. */
   static async create(code: string, name: string, dodgeDeadzone: number, body: number): Promise<ClientSession> {
     const { peer, link } = await joinRoom(code);
+    return ClientSession.createOnLink(link, code, name, dodgeDeadzone, body, peer);
+  }
+
+  static async createOnLink(link: GameLink, code: string, name: string, dodgeDeadzone: number, body: number, peer: Peer | null = null, timeoutMs = 10000): Promise<ClientSession> {
     const session = new ClientSession(peer, link, code);
     session.dodgeDeadzone = dodgeDeadzone;
     session.body = body;
@@ -120,7 +133,7 @@ export class ClientSession implements Session {
       const timer = setTimeout(() => {
         session.leave();
         reject(new Error('The host did not answer'));
-      }, 10000);
+      }, timeoutMs);
       session.admitted = (err) => {
         clearTimeout(timer);
         if (err) reject(new Error(err));
@@ -144,10 +157,11 @@ export class ClientSession implements Session {
 
   get lobby(): LobbyState {
     return {
-      code: this.code,
+      code: this.serverInfo?.code ?? this.code,
       players: this.players,
       mySlot: this.localId,
-      isHost: false,
+      isHost: this.owner,
+      server: this.serverInfo,
       settings: this.settings,
       inMatch: this.inMatch,
       status: this.status,
@@ -166,6 +180,9 @@ export class ClientSession implements Session {
     switch (msg.t) {
       case 'welcome':
         this.localId = msg.slot;
+        this.owner = msg.owner ?? false;
+        this.serverInfo = msg.server;
+        this.onLobbyChanged?.();
         this.status = `In room ${this.code}`;
         this.admitted?.(null);
         this.admitted = null;
@@ -178,12 +195,20 @@ export class ClientSession implements Session {
       case 'lobby':
         this.players = msg.players;
         this.settings = msg.settings;
+        this.status = `In room ${this.code}`;
+        this.onLobbyChanged?.();
+        break;
+      case 'notice':
+        this.status = msg.reason;
         this.onLobbyChanged?.();
         break;
       case 'start':
         void this.startGame(msg.config);
         break;
       case 'end':
+        this.gameGeneration++;
+        this.bufferedSnapshot = null;
+        this.startingGame = false;
         this.inMatch = false;
         this.synced = false;
         this.game?.destroy();
@@ -197,27 +222,52 @@ export class ClientSession implements Session {
   }
 
   private async startGame(config: GameConfig): Promise<void> {
-    if (this.startingGame) return;
+    const generation = ++this.gameGeneration;
+    if (this.ended) return;
     this.startingGame = true;
-    const game = await Game.create(config);
-    this.startingGame = false;
-    if (this.ended) {
-      game.destroy();
-      return;
-    }
-    game.setDodgeDeadzone(this.localId, this.dodgeDeadzone);
-    this.game?.destroy();
-    this.game = game;
+    this.bufferedSnapshot = null;
     this.synced = false;
-    this.inMatch = true;
+    this.game?.destroy();
+    this.game = null;
     this.pending.clear();
     this.history.clear();
+    this.metaHistory.clear();
     this.remote.clear();
+    this.inputs.clear();
+    this.lastLocalInput = EMPTY_INPUT;
+    this.ackedInputTick = -1;
+    this.leadErrorStreak = 0;
     this.lastSnapshotTick = -1;
+    this.latestSnapTick = 0;
+    this.latestSnapAt = 0;
+    this.remoteRenderTick = 0;
+    this.accumulator = 0;
+    this.alpha = 0;
     this.timeScale = 1;
+    this.smoothCarPos.set(0, 0, 0);
+    this.smoothCarQuat.identity();
+    this.smoothBallPos.set(0, 0, 0);
+    let game: Game;
+    try {
+      game = await Game.create(config);
+    } catch (err) {
+      if (generation === this.gameGeneration) this.end(`Could not start match: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (generation !== this.gameGeneration || this.ended) { game.destroy(); return; }
+    this.startingGame = false;
+    game.setDodgeDeadzone(this.localId, this.dodgeDeadzone);
+    this.game = game;
+    this.inMatch = true;
     this.status = 'Waiting for the first snapshot…';
     this.onLobbyChanged?.();
-    this.onMatchStarted?.();
+    this.applyBufferedSnapshot();
+  }
+
+  private applyBufferedSnapshot(): void {
+    const buffered = this.bufferedSnapshot;
+    this.bufferedSnapshot = null;
+    if (buffered) this.onSnapshot(buffered.state, buffered.lastInputTick);
   }
 
   // ---------------------------------------------------------------------------
@@ -287,6 +337,7 @@ export class ClientSession implements Session {
     const game = this.game!;
     const car = game.cars.get(this.localId);
     if (!car) return;
+    this.metaHistory.set(tick, game.captureMetaState());
     const t = car.body.translation();
     const r = car.body.rotation();
     const v = car.body.linvel();
@@ -321,6 +372,12 @@ export class ClientSession implements Session {
   }
 
   private onSnapshot(state: GameState, lastInputTick: number): void {
+    if (this.ended) return;
+    if (this.startingGame) {
+      if (!this.bufferedSnapshot || state.tick > this.bufferedSnapshot.state.tick) this.bufferedSnapshot = { state, lastInputTick };
+      return;
+    }
+    if (!this.game) return;
     if (state.tick <= this.lastSnapshotTick) return; // stale or out of order
     this.stats.snapshots++;
     this.lastSnapshotTick = state.tick;
@@ -334,24 +391,25 @@ export class ClientSession implements Session {
 
     if (!this.synced) {
       this.resync(state, 'initial');
+      this.onLobbyChanged?.();
+      this.onMatchStarted?.();
       return;
     }
 
-    // Clock control: keep the host holding TARGET_LEAD ticks of my input. A wildly wrong lead
-    // that persists for a while (about half a second of snapshots) means the clocks have
-    // drifted apart for good and we jump; a brief one is just a late frame and nudging suffices.
-    if (lastInputTick >= 0) {
-      const lead = lastInputTick - state.tick;
-      const err = TARGET_LEAD - lead;
-      if (Math.abs(err) > HARD_RESYNC_TICKS) {
-        if (++this.leadErrorStreak > 30) {
-          this.leadErrorStreak = 0;
-          this.resync(state, 'lead');
-          return;
-        }
-      } else this.leadErrorStreak = 0;
-      this.timeScale = Math.max(0.9, Math.min(1.15, 1 + 0.02 * err));
-    }
+    // A received snapshot has already spent one downlink in transit; our newly sent input
+    // needs another uplink. Control this full-RTT lead from our clock, independently of ACKs:
+    // if every input arrived late, the authority's -1 ACK must not disable recovery forever.
+    const err = this.predictionLead() - (game.tick - state.tick);
+    // Only a deficit may jump forward. When RTT falls, slow down to drain excess lead;
+    // rewinding would reuse ticks already acknowledged (and queued) by the host.
+    if (err > TARGET_LEAD * 2) {
+      if (++this.leadErrorStreak >= 8) {
+        this.leadErrorStreak = 0;
+        this.resync(state, 'lead');
+        return;
+      }
+    } else this.leadErrorStreak = 0;
+    this.timeScale = Math.max(0.9, Math.min(1.15, 1 + 0.02 * err));
 
     if (state.tick > game.tick) {
       // The host got ahead of our frame loop (a late frame). Simulate the missing ticks now with the
@@ -377,20 +435,17 @@ export class ClientSession implements Session {
 
     const local = state.cars.find((c) => c.id === this.localId);
     const h = this.history.get(state.tick);
-    const agrees = !!local && !!h && this.matches(h, local.state, state.ball);
+    const meta = this.metaHistory.get(state.tick);
+    const agrees = !!local && !!h && !!meta && this.matches(h, local.state, state.ball) && this.matchesMeta(meta, state);
 
     if (agrees) {
-      // Physics matched at that tick: keep the prediction, take everything else from the host.
-      game.applyMetaState(state);
+      // Both physics and metadata matched at the host tick. Keep our newer predicted timeline:
+      // applying its older countdown/phase here would repeatedly rewind kickoff transitions.
       const leadTicks = game.tick - state.tick;
       const seen = new Set<number>();
       for (const c of state.cars) {
         seen.add(c.id);
-        if (c.id === this.localId) {
-          const car = game.cars.get(c.id);
-          if (car) car.boost = c.state.boost;
-          continue;
-        }
+        if (c.id === this.localId) continue;
         const car = game.addCar(c.id, c.team);
         car.setFrozen(false);
         car.applyState(c.state);
@@ -453,9 +508,26 @@ export class ClientSession implements Session {
 
     for (const t of this.pending.keys()) if (t < state.tick) this.pending.delete(t);
     for (const t of this.history.keys()) if (t < state.tick) this.history.delete(t);
+    for (const t of this.metaHistory.keys()) if (t < state.tick) this.metaHistory.delete(t);
+  }
+
+  private matchesMeta(a: GameMetaState, b: GameMetaState): boolean {
+    if (a.phase !== b.phase || a.overtime !== b.overtime || a.lastGoal !== b.lastGoal ||
+        a.score.blue !== b.score.blue || a.score.orange !== b.score.orange ||
+        a.lastGoalScorer !== b.lastGoalScorer || a.lastTouch !== b.lastTouch ||
+        a.rngState !== b.rngState || a.spawnCursor !== b.spawnCursor || a.currentSpawn !== b.currentSpawn) return false;
+    // Timers travel as float32. Pad comparisons allow two half-quantum errors:
+    // one in our restored snapshot anchor and one in the newly rounded host snapshot.
+    // Their combined bound is .05 s; the epsilon covers floating-point subtraction.
+    for (const key of ['countdown', 'goalPause', 'timeRemaining', 'overtimeElapsed', 'lastGoalSpeed'] as const) {
+      if (Math.abs(a[key] - b[key]) > 0.0001) return false;
+    }
+    return a.spawnOrder.length === b.spawnOrder.length && a.spawnOrder.every((v, i) => v === b.spawnOrder[i]) &&
+      a.pads.length === b.pads.length && a.pads.every((v, i) => Math.abs(v - b.pads[i]) <= 0.050001);
   }
 
   private matches(h: Float32Array, car: GameState['cars'][number]['state'], ball: GameState['ball']): boolean {
+    if (Math.abs(h[10] - car.boost) > 0.01) return false;
     const dp = Math.hypot(h[0] - car.pos.x, h[1] - car.pos.y, h[2] - car.pos.z);
     if (dp > POS_TOL) return false;
     const dv = Math.hypot(h[7] - car.vel.x, h[8] - car.vel.y, h[9] - car.vel.z);
@@ -469,7 +541,13 @@ export class ClientSession implements Session {
     return true;
   }
 
-  /** Adopt the snapshot outright and run ahead of it by half the round trip plus the target lead. */
+  /** Recent peak RTT covers measured jitter; three additional ticks cover normal scheduling. */
+  private predictionLead(): number {
+    const rtt = Math.max(this.ping ?? 100, ...this.rttSamples);
+    return Math.min(MAX_PREDICTION_LEAD, Math.ceil(rtt * TICK_RATE / 1000) + TARGET_LEAD);
+  }
+
+  /** Adopt the snapshot outright and run ahead by the bounded full-RTT input lead. */
   private resync(state: GameState, reason: 'initial' | 'lead' | 'behind'): void {
     const game = this.game!;
     if (reason === 'lead') this.stats.resyncLead++;
@@ -477,17 +555,17 @@ export class ClientSession implements Session {
     game.applyState(state);
     this.pending.clear();
     this.history.clear();
-    const rttTicks = Math.ceil(((this.ping ?? 100) / 1000) * TICK_RATE);
-    const target = state.tick + Math.ceil(rttTicks / 2) + TARGET_LEAD;
-    const neutral = quantizeInput(EMPTY_INPUT);
-    while (game.tick < target && game.tick < state.tick + 120) {
-      this.pending.set(game.tick, neutral);
+    this.metaHistory.clear();
+    const target = state.tick + this.predictionLead();
+    const input = quantizeInput(reason === 'initial' ? EMPTY_INPUT : this.lastLocalInput);
+    while (game.tick < target) {
+      this.pending.set(game.tick, input);
       this.inputs.clear();
-      this.inputs.set(this.localId, neutral);
+      this.inputs.set(this.localId, input);
       game.step(this.inputs, TICK_DT);
     }
     this.recordHistory(game.tick);
-    this.lastLocalInput = neutral;
+    this.lastLocalInput = input;
     this.accumulator = 0;
     this.timeScale = 1;
     this.synced = true;
@@ -619,7 +697,7 @@ export class ClientSession implements Session {
     this.game?.destroy();
     this.game = null;
     try {
-      this.peer.destroy();
+      this.peer?.destroy();
     } catch {
       /* ignore */
     }

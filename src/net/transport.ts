@@ -210,6 +210,24 @@ function peerIdForCode(code: string): string {
   return ID_PREFIX + normalizeCode(code);
 }
 
+/** Local queue/submission counters, not delivery or latency measurements. */
+export interface TrafficDiagnostics {
+  fastOpen: boolean;
+  fastBufferedBytes: number;
+  reliableBufferedBytes: number;
+  /** PeerJS's pending message count, separate from browser buffered bytes. */
+  reliableQueuedMessages: number;
+  fastSubmitted: number;
+  fallbackSubmitted: number;
+  droppedBackpressure: number;
+  droppedUnavailable: number;
+  sendErrors: number;
+  fastStallRecoveries: number;
+}
+
+/** Retire a fast channel whose queued bytes stop progressing for this long. */
+const FAST_STALL_TIMEOUT_MS = 250;
+
 /** One connection to a remote peer: a reliable JSON channel and (once set up) a fast binary one. */
 export class Link {
   onCtrl: ((msg: CtrlMsg) => void) | null = null;
@@ -217,6 +235,14 @@ export class Link {
   onClose: (() => void) | null = null;
   closed = false;
   private fast: RTCDataChannel | null = null;
+  private fastSubmitted = 0;
+  private fallbackSubmitted = 0;
+  private droppedBackpressure = 0;
+  private droppedUnavailable = 0;
+  private sendErrors = 0;
+  private fastStallRecoveries = 0;
+  private fastBufferedBytes = 0;
+  private fastProgressAt = 0;
 
   constructor(
     readonly conn: DataConnection,
@@ -265,7 +291,28 @@ export class Link {
   }
 
   get fastOpen(): boolean {
-    return this.fast !== null && this.fast.readyState === 'open';
+    return !this.closed && this.fast !== null && this.fast.readyState === 'open';
+  }
+
+  private get reliableQueuedMessages(): number {
+    // Raw PeerJS 1.5 connections use BufferedConnection; its base DataConnection type
+    // omits this getter. Other implementations may have no user-space queue.
+    return (this.conn as DataConnection & { readonly bufferSize?: number }).bufferSize ?? 0;
+  }
+
+  get trafficDiagnostics(): TrafficDiagnostics {
+    return {
+      fastOpen: this.fastOpen,
+      fastBufferedBytes: this.fast?.bufferedAmount ?? 0,
+      reliableBufferedBytes: this.conn.dataChannel?.bufferedAmount ?? 0,
+      reliableQueuedMessages: this.reliableQueuedMessages,
+      fastSubmitted: this.fastSubmitted,
+      fallbackSubmitted: this.fallbackSubmitted,
+      droppedBackpressure: this.droppedBackpressure,
+      droppedUnavailable: this.droppedUnavailable,
+      sendErrors: this.sendErrors,
+      fastStallRecoveries: this.fastStallRecoveries,
+    };
   }
 
   private createFastChannel(): void {
@@ -279,16 +326,28 @@ export class Link {
     }
   }
 
+  private resetFastProgress(): void {
+    this.fastBufferedBytes = 0;
+    this.fastProgressAt = 0;
+  }
+
   private adoptFast(ch: RTCDataChannel): void {
+    this.resetFastProgress();
     ch.binaryType = 'arraybuffer';
     ch.onmessage = (e) => {
       if (e.data instanceof ArrayBuffer) this.onFast?.(e.data);
     };
     ch.onclose = () => {
-      if (this.fast === ch) this.fast = null;
+      if (this.fast === ch) {
+        this.fast = null;
+        this.resetFastProgress();
+      }
     };
     ch.onerror = () => {
-      if (this.fast === ch) this.fast = null;
+      if (this.fast === ch) {
+        this.fast = null;
+        this.resetFastProgress();
+      }
     };
     this.fast = ch;
   }
@@ -303,23 +362,63 @@ export class Link {
   }
 
   sendFast(buf: ArrayBuffer): void {
-    if (this.closed) return;
-    if (this.fast && this.fast.readyState === 'open') {
-      // Do not queue behind a stalled link: game packets are only useful fresh.
-      if (this.fast.bufferedAmount > 64 * 1024) return;
-      try {
-        this.fast.send(buf);
-        return;
-      } catch {
-        /* fall through */
-      }
+    if (this.closed) {
+      this.droppedUnavailable++;
+      return;
     }
-    if (this.conn.open) {
-      try {
-        this.conn.send(buf);
-      } catch {
-        /* dropped */
+    const fast = this.fast;
+    if (fast && fast.readyState === 'open') {
+      // Brief congestion drops stale traffic. If bytes stop draining for long
+      // enough, retire only this channel and submit the current packet via fallback.
+      const buffered = fast.bufferedAmount;
+      const now = performance.now();
+      if (buffered > 0) {
+        if (this.fastBufferedBytes === 0 || buffered < this.fastBufferedBytes) this.fastProgressAt = now;
+        this.fastBufferedBytes = buffered;
+        if (now - this.fastProgressAt < FAST_STALL_TIMEOUT_MS) {
+          this.droppedBackpressure++;
+          return;
+        }
+        this.fast = null;
+        this.resetFastProgress();
+        this.fastStallRecoveries++;
+        try {
+          fast.close();
+        } catch {
+          /* retired locally even if browser close fails */
+        }
+      } else {
+        this.resetFastProgress();
+        try {
+          fast.send(buf);
+          this.fastSubmitted++;
+          this.fastBufferedBytes = fast.bufferedAmount;
+          this.fastProgressAt = now;
+          return;
+        } catch {
+          this.sendErrors++;
+          // A channel can close between checking readyState and send; try fallback.
+        }
       }
+    } else {
+      this.resetFastProgress();
+    }
+    const reliable = this.conn.dataChannel;
+    if (!this.conn.open || !reliable || reliable.readyState !== 'open') {
+      this.droppedUnavailable++;
+      return;
+    }
+    // PeerJS has a separate message queue beyond RTCDataChannel.bufferedAmount.
+    // Wait for both queues to drain; controls keep their existing reliable path.
+    if (reliable.bufferedAmount > 0 || this.reliableQueuedMessages > 0) {
+      this.droppedBackpressure++;
+      return;
+    }
+    try {
+      this.conn.send(buf);
+      this.fallbackSubmitted++;
+    } catch {
+      this.sendErrors++;
     }
   }
 
