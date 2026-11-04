@@ -323,6 +323,7 @@ export class ClientSession implements Session {
   private sendInputs(): void {
     const game = this.game;
     if (!game) return;
+    if (this.link.canSendInputs && !this.link.canSendInputs()) return;
     const ticks = [...this.pending.keys()].filter((t) => t > this.ackedInputTick).sort((a, b) => a - b);
     if (ticks.length === 0) return;
     // Consecutive by construction; send the newest run (at most 32).

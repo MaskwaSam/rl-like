@@ -57,6 +57,10 @@ class SocketLink implements GameLink {
     if (message.t === 'body' && this.hello?.t === 'hello') this.hello.body = message.body;
     if (this.ws?.readyState === WebSocket.OPEN && this.ws.bufferedAmount <= 64 * 1024) this.ws.send(JSON.stringify(message));
   }
+  canSendInputs(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN && this.ws.bufferedAmount <= 64 * 1024
+      && performance.now() - this.lastInputAt >= 1000 / 60;
+  }
   sendFast(buffer: ArrayBuffer): void {
     if (this.ws?.readyState !== WebSocket.OPEN || this.ws.bufferedAmount > 64 * 1024) return;
     if (new Uint8Array(buffer)[0] === 1) {

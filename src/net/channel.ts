@@ -6,6 +6,8 @@ export interface GameLink {
   onFast: ((buf: ArrayBuffer) => void) | null;
   onClose: (() => void) | null;
   sendCtrl(msg: CtrlMsg): void;
+  /** Non-consuming input preflight; sendFast still owns the final transport checks. */
+  canSendInputs?(): boolean;
   sendFast(buf: ArrayBuffer): void;
   close(): void;
 }
