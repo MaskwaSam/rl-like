@@ -19,6 +19,9 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          # Differential hot-path checks load the pinned pre-optimization commit.
+          fetch-depth: 0
       - name: Set up Node.js 22
         uses: actions/setup-node@v7
         with:
@@ -36,6 +39,8 @@ jobs:
         run: npm run test:sessions
       - name: Run LAN performance regressions
         run: npm run test:lan
+      - name: Run allocation and render update regressions
+        run: npm run test:hotpaths
       - name: Run host startup failure regression
         run: npm run test:host-startup
       - name: Run spectator admission regression

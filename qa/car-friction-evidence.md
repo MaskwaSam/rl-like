@@ -43,6 +43,5 @@ Scratch is neither serialized nor restored and is private to each car.
 
 Additional validation: `npm run typecheck`, `npm run test:headless` (21 checks),
 `npm run test:modes` (51 checks), and `git diff --check` passed.
-Dependencies used the authorized ignored symlink to
-`/Users/sam/Desktop/Car Soccer/.deployment/spectator-mode/node_modules`.
+Dependencies reused an existing ignored installation of `node_modules`.
 No browser, physical device, real WebRTC, deployment or timing benchmark was run.

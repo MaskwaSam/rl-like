@@ -175,6 +175,15 @@ try {
   await shot(spec, '06-free-cam.png');
   await spec.getByRole('button', { name: /Overview/ }).click();
   check((await view()).mode === 'overview', 'Overview button returns to the overview');
+  await spec.waitForFunction(() => window.__renderer.cars.get(0)?.nameplate?.visible);
+  const nameplateId = await spec.evaluate(() => window.__renderer.cars.get(0).nameplate.uuid);
+  for (let i = 0; i < 4; i++) {
+    await spec.keyboard.press('Digit1');
+    await spec.waitForFunction(() => window.__renderer.cars.get(0)?.nameplate?.visible === false);
+    await spec.keyboard.press('KeyO');
+    await spec.waitForFunction(() => window.__renderer.cars.get(0)?.nameplate?.visible === true);
+  }
+  check(await spec.evaluate(id => window.__renderer.cars.get(0).nameplate.uuid === id, nameplateId), 'camera switching reuses the player nameplate texture and sprite');
   await spec.getByRole('button', { name: /Host QA/ }).click();
   check((await view()).mode === 'player', 'player button follows that player');
   await spec.keyboard.press('KeyH');

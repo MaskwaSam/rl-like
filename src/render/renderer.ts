@@ -79,6 +79,7 @@ export class Renderer {
   private realShadows = false;
   private readonly cars = new Map<number, CarVisual>();
   private pads: PadVisual[] = [];
+  private padSource: BoostPad[] | null = null;
   private bigOrbs!: THREE.InstancedMesh;
   private bigRings!: THREE.InstancedMesh;
   private smallRings!: THREE.InstancedMesh;
@@ -343,13 +344,17 @@ export class Renderer {
   }
 
   syncPads(pads: BoostPad[], dt: number): void {
-    const rosterChanged = pads.length !== this.pads.length || pads.some((p, i) => {
-      const v = this.pads[i];
-      return !v || p.x !== v.x || p.z !== v.z || p.big !== v.big;
-    });
-    if (rosterChanged) {
-      this.buildPads(pads);
-      this.prevPadCooldown = pads.map((p) => p.cooldown);
+    // A Game's pad layout is fixed. Check a replacement array once, not every frame.
+    if (pads !== this.padSource || pads.length !== this.pads.length) {
+      const rosterChanged = pads.length !== this.pads.length || pads.some((p, i) => {
+        const v = this.pads[i];
+        return !v || p.x !== v.x || p.z !== v.z || p.big !== v.big;
+      });
+      if (rosterChanged) {
+        this.buildPads(pads);
+        this.prevPadCooldown = pads.map((p) => p.cooldown);
+      }
+      this.padSource = pads;
     }
     this.padTime += dt;
     let bigOrbsChanged = false;
@@ -571,10 +576,14 @@ export class Renderer {
    */
   private buildPads(pads: BoostPad[]): void {
     if (this.bigOrbs) {
+      const materials = new Set<THREE.Material>();
       for (const mesh of [this.bigOrbs, this.bigRings, this.smallRings]) {
         this.scene.remove(mesh);
+        mesh.dispose();
         mesh.geometry.dispose();
+        for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) materials.add(material);
       }
+      for (const material of materials) material.dispose();
       for (const pad of this.pads) if (pad.halo) {
         this.scene.remove(pad.halo);
         pad.halo.material.dispose();
@@ -616,6 +625,7 @@ export class Renderer {
     this.smallRings.instanceMatrix.needsUpdate = true;
     if (this.bigRings.instanceColor) this.bigRings.instanceColor.needsUpdate = true;
     if (this.smallRings.instanceColor) this.smallRings.instanceColor.needsUpdate = true;
+    this.padSource = pads;
   }
 
   /**

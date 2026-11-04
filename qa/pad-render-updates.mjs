@@ -109,11 +109,25 @@ renderer.syncPads(pads, 1 / 60);
 assert.equal(pop.age, 1 / 60, 'pickup pop starts and advances by dt');
 
 // A changed roster rebuilds instance meshes and initializes each color from cooldown state.
+const oldMeshes = [renderer.bigOrbs, renderer.bigRings, renderer.smallRings];
+const oldMaterials = new Set(oldMeshes.map(m => m.material));
+let freedMeshes = 0, freedGeometry = 0, freedMaterials = 0;
+for (const mesh of oldMeshes) {
+  mesh.addEventListener('dispose', () => freedMeshes++);
+  mesh.geometry.addEventListener('dispose', () => freedGeometry++);
+}
+for (const material of oldMaterials) material.addEventListener('dispose', () => freedMaterials++);
+let sharedHaloTextureDisposals = 0;
+renderer.pads[0].halo.material.map.addEventListener('dispose', () => sharedHaloTextureDisposals++);
 const replacement = [...pads, { x: 6, y: 0, z: 0, big: true, cooldown: 2 }];
 renderer.syncPads(replacement, 1 / 60);
 assert.equal(renderer.pads.length, replacement.length);
 assert.equal(renderer.pads[3].active, false);
 assert.equal(renderer.prevPadCooldown.length, replacement.length);
+assert.equal(freedMeshes, 3, 'replaced instanced buffers are released');
+assert.equal(freedGeometry, 3);
+assert.equal(freedMaterials, oldMaterials.size, 'shared ring material is disposed once');
+assert.equal(sharedHaloTextureDisposals, 0, 'cached halo texture stays live');
 
 console.log(JSON.stringify({
   fixture: 'production Renderer.syncPads with real THREE.InstancedMesh (no WebGL)',
