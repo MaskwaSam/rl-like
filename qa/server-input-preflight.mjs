@@ -116,8 +116,8 @@ try {
     assert.deepEqual(runs.current.pending, runs.baseline.pending, 'prediction inputs unchanged');
     assert.equal(runs.current.ticks, runs.baseline.ticks, 'local prediction keeps stepping');
     const inputPackets = runs.current.packets.filter(p => p[4] === 1).length;
-    assert.equal(runs.current.encodes, inputPackets);
-    assert.ok(runs.current.selections <= inputPackets + 1, 'only an initial empty pending set may add a selection');
+    assert.ok(runs.current.encodes >= inputPackets, 'near-deadline preparation may still face the final send gate');
+    assert.ok(runs.current.selections <= runs.current.encodes + 1, 'only an initial empty pending set may add a selection');
     assert.ok(runs.baseline.encodes > runs.current.encodes);
     results.push({ fps, baselineSelections: runs.baseline.selections, selections: runs.current.selections,
       baselineEncodes: runs.baseline.encodes, encodes: runs.current.encodes,
@@ -154,8 +154,9 @@ try {
     assert.deepEqual(packetShape(binary(ws).at(-1)), { epoch: 0, type: 1, first: 48, count: 32 });
     const last = link.lastInputAt;
     now = last + 1000 / 60 - 1e-8;
-    if (version === 'current') assert.equal(link.canSendInputs(), false, 'strictly below pacing boundary');
+    if (version === 'current') assert.equal(link.canSendInputs(), true, 'near-deadline preparation has headroom');
     client.sendInputs();
+    assert.equal(binary(ws).filter(p => p[4] === 1).length, 1, 'headroom does not allow an early packet');
     link.sendFast(api.encodePing(now)); link.sendFast(api.encodePong(now));
     assert.equal(link.lastInputAt, last, 'ping/pong do not consume pacing');
     // Use an exactly representable interval endpoint to test strict <, without rounding ambiguity.
@@ -183,6 +184,24 @@ try {
     f.close();
   }
   assert.deepEqual(traces.current, traces.baseline, 'drain/boundary/ACK/gap/direct-call differential');
+
+  // Real time advances while inputs are prepared. A preflight just before the
+  // deadline must not defer a packet that the existing final gate would send.
+  const boundaryTraces = {};
+  for (const version of Object.keys(versions)) {
+    now = 1000;
+    const f = await fixture(version);
+    fill(f.client, 0, 31);
+    f.link.lastInputAt = 1000;
+    now += 1000 / 60 - 0.1;
+    const keys = f.client.pending.keys.bind(f.client.pending);
+    f.client.pending.keys = () => { now += 0.2; return keys(); };
+    f.client.sendInputs();
+    boundaryTraces[version] = f.ws.trace;
+    f.close();
+  }
+  assert.equal(boundaryTraces.baseline.length, 1, 'boundary fixture crosses the deadline during preparation');
+  assert.deepEqual(boundaryTraces.current, boundaryTraces.baseline, 'preparation crossing the deadline sends this frame');
 
   const lifecycle = {};
   for (const version of Object.keys(versions)) {

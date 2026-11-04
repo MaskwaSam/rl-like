@@ -58,8 +58,11 @@ class SocketLink implements GameLink {
     if (this.ws?.readyState === WebSocket.OPEN && this.ws.bufferedAmount <= 64 * 1024) this.ws.send(JSON.stringify(message));
   }
   canSendInputs(): boolean {
+    // Keep near-deadline frames eligible for preparation: the clock can cross
+    // the send boundary while inputs are selected/encoded. sendFast alone
+    // enforces the exact cap, so this headroom never permits an early packet.
     return this.ws?.readyState === WebSocket.OPEN && this.ws.bufferedAmount <= 64 * 1024
-      && performance.now() - this.lastInputAt >= 1000 / 60;
+      && performance.now() - this.lastInputAt >= 1000 / 60 - 1;
   }
   sendFast(buffer: ArrayBuffer): void {
     if (this.ws?.readyState !== WebSocket.OPEN || this.ws.bufferedAmount > 64 * 1024) return;
