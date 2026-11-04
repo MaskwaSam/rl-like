@@ -45,6 +45,8 @@ interface PadVisual {
   index: number;
   halo: THREE.Sprite | null;
   phase: number;
+  /** Whether this pad's ring was last rendered as active. */
+  active: boolean;
 }
 
 /**
@@ -339,13 +341,29 @@ export class Renderer {
   }
 
   syncPads(pads: BoostPad[], dt: number): void {
+    const rosterChanged = pads.length !== this.pads.length || pads.some((p, i) => {
+      const v = this.pads[i];
+      return !v || p.x !== v.x || p.z !== v.z || p.big !== v.big;
+    });
+    if (rosterChanged) {
+      this.buildPads(pads);
+      this.prevPadCooldown = pads.map((p) => p.cooldown);
+    }
     this.padTime += dt;
+    let bigOrbsChanged = false;
+    let bigColorsChanged = false;
+    let smallColorsChanged = false;
     for (let i = 0; i < pads.length; i++) {
       const p = pads[i];
       const v = this.pads[i];
       const active = p.cooldown === 0;
       const rings = v.big ? this.bigRings : this.smallRings;
-      rings.setColorAt(v.index, active ? this.padColorOn : this.padColorOff);
+      if (active !== v.active) {
+        rings.setColorAt(v.index, active ? this.padColorOn : this.padColorOff);
+        v.active = active;
+        if (v.big) bigColorsChanged = true;
+        else smallColorsChanged = true;
+      }
       if (v.big) {
         // Gentle bob so the orb reads as a floating pickup; hidden by scaling to nothing.
         const bob = Math.sin(this.padTime * 2 + v.phase) * 0.12;
@@ -355,6 +373,7 @@ export class Renderer {
         this.padMatrix.scale(this.tmpV.setScalar(sc));
         this.padMatrix.setPosition(v.x, y, v.z);
         this.bigOrbs.setMatrixAt(v.index, this.padMatrix);
+        bigOrbsChanged = true;
         if (v.halo) {
           v.halo.visible = active;
           v.halo.position.y = y;
@@ -379,9 +398,9 @@ export class Renderer {
       (pop.sprite.material as THREE.SpriteMaterial).opacity = 0.9 * (1 - k);
       if (k >= 1) pop.sprite.visible = false;
     }
-    this.bigOrbs.instanceMatrix.needsUpdate = true;
-    if (this.bigRings.instanceColor) this.bigRings.instanceColor.needsUpdate = true;
-    if (this.smallRings.instanceColor) this.smallRings.instanceColor.needsUpdate = true;
+    if (bigOrbsChanged) this.bigOrbs.instanceMatrix.needsUpdate = true;
+    if (bigColorsChanged && this.bigRings.instanceColor) this.bigRings.instanceColor.needsUpdate = true;
+    if (smallColorsChanged && this.smallRings.instanceColor) this.smallRings.instanceColor.needsUpdate = true;
   }
 
   /**
@@ -549,6 +568,16 @@ export class Renderer {
    * six glow sprites for the big pads: nine draw calls for all 34 pads.
    */
   private buildPads(pads: BoostPad[]): void {
+    if (this.bigOrbs) {
+      for (const mesh of [this.bigOrbs, this.bigRings, this.smallRings]) {
+        this.scene.remove(mesh);
+        mesh.geometry.dispose();
+      }
+      for (const pad of this.pads) if (pad.halo) {
+        this.scene.remove(pad.halo);
+        pad.halo.material.dispose();
+      }
+    }
     const bigs = pads.filter((p) => p.big).length;
     const smalls = pads.length - bigs;
     const ringMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, side: THREE.DoubleSide });
@@ -570,7 +599,8 @@ export class Renderer {
       m.makeRotationX(-Math.PI / 2);
       m.setPosition(p.x, 0.015, p.z);
       rings.setMatrixAt(index, m);
-      rings.setColorAt(index, this.padColorOn);
+      const active = p.cooldown === 0;
+      rings.setColorAt(index, active ? this.padColorOn : this.padColorOff);
       let halo: THREE.Sprite | null = null;
       if (p.big) {
         halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTex, color: 0xffa030, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }));
@@ -578,10 +608,12 @@ export class Renderer {
         halo.position.set(p.x, 1.15, p.z);
         this.scene.add(halo);
       }
-      return { x: p.x, z: p.z, big: p.big, index, halo, phase: i * 0.7 };
+      return { x: p.x, z: p.z, big: p.big, index, halo, phase: i * 0.7, active };
     });
     this.bigRings.instanceMatrix.needsUpdate = true;
     this.smallRings.instanceMatrix.needsUpdate = true;
+    if (this.bigRings.instanceColor) this.bigRings.instanceColor.needsUpdate = true;
+    if (this.smallRings.instanceColor) this.smallRings.instanceColor.needsUpdate = true;
   }
 
   /**
