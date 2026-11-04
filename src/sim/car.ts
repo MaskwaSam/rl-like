@@ -182,6 +182,9 @@ export class Car {
     normal: new Vector3(0, 1, 0),
     traceLen: 0,
   }));
+  // Per-car buffers retain all wheel results until the separate impulse application pass.
+  private readonly frictionImpulses = WHEELS.map(() => new Vector3());
+  private readonly frictionPoints = WHEELS.map(() => new Vector3());
   private readonly preStepAngVel = new Vector3();
   private prevJump = false;
   private jumpTime = 0;
@@ -703,8 +706,9 @@ export class Car {
     qSteer.setFromAxisAngle(up, -steerAngle);
 
     const frictionScale = CAR.mass / CAR.frictionMassDivisor;
-    const impulses: Vector3[] = [];
-    const points: Vector3[] = [];
+    const impulses = this.frictionImpulses;
+    const points = this.frictionPoints;
+    let impulseCount = 0;
 
     qInv.copy(q).invert();
 
@@ -764,18 +768,17 @@ export class Car {
         rollingBt = engineForceBt / frictionScale;
       }
 
-      const J = new Vector3()
+      const J = impulses[impulseCount]
         .copy(wheelFwd)
         .multiplyScalar(rollingBt * longFriction)
         .addScaledVector(axle, sideImpulseBt * latFriction)
         .multiplyScalar(frictionScale * dt * BT);
-      impulses.push(J);
       // Raise the application point to the chassis' height so lateral grip does not roll the car.
-      const p = new Vector3().copy(rA).addScaledVector(up, -rA.dot(up)).add(pos);
-      points.push(p);
+      points[impulseCount].copy(rA).addScaledVector(up, -rA.dot(up)).add(pos);
+      impulseCount++;
     }
 
-    for (let i = 0; i < impulses.length; i++) {
+    for (let i = 0; i < impulseCount; i++) {
       const J = impulses[i];
       const p = points[i];
       this.debug.frictionDvY += J.y / CAR.mass;
