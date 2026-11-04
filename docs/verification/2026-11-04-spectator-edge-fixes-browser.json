@@ -1,0 +1,62 @@
+{
+  "scope": "Built app on localhost; real PeerJS signalling and WebRTC between a host, desktop viewer and touch-enabled viewer on one Mac; software-rendered WebGL. Not a physical-LAN, multi-device or rendered-performance claim.",
+  "checks": [
+    "LAN host room created (YHDLY)",
+    "host lobby shows the spectator hint",
+    "spectator host shows spectator login",
+    "spectator joined over WebRTC from the room link and waits for kickoff",
+    "host lobby counts 1 watching",
+    "spectator took no player slot",
+    "spectator synchronized when the host started",
+    "spectator picture within 6 ticks (50 ms) of the host on median (-0.6 ticks)",
+    "spectator sees the host car drive",
+    "overview broadcast camera is the default",
+    "resize leaves the overview camera projection under overview control",
+    "O toggles to the full-field overview",
+    "1 follows the first player",
+    "followed player name shown",
+    "player view preserves horizontal FOV on portrait rotation without reselecting",
+    "player view preserves horizontal FOV when rotated back to landscape",
+    "B switches player view to car cam",
+    "ball-cam button reflects disabled preference",
+    "boost labels repopulate after view controls rebuild",
+    "ball-cam button reflects enabled preference",
+    "switching player view during a goal pause keeps car cam",
+    "goal pause preserves the latest viewer preference",
+    "free camera flies with W and Space",
+    "resize leaves the free camera projection under free-camera control",
+    "Overview button returns to the overview",
+    "player button follows that player",
+    "H hides the overlay for a clean feed",
+    "second spectator (same login, phone viewport) joins mid-match",
+    "touch Hide removes the spectator bar",
+    "hidden overlay leaves a visible touch control to restore it",
+    "touch Show controls restores the spectator bar without a keyboard",
+    "restoring controls preserves the current camera view",
+    "spectator returns to waiting when the host ends the match",
+    "touch reveal control disappears when the host ends the match",
+    "match end resets hidden overlay and help",
+    "rematch displays a fresh countdown banner",
+    "host departure returns the spectator to the code screen with a reason",
+    "touch reveal control stays hidden after host departure",
+    "browser run has no uncaught page errors"
+  ],
+  "measurements": {
+    "lagTicksMedian": -0.6138903663281781,
+    "lagTicksMax": -0.5192309187026467,
+    "pingMs": 1,
+    "spectatorStats": {
+      "snapshots": 552,
+      "resims": 176,
+      "resimTicks": 199,
+      "clockSnaps": 0,
+      "extrapolatedTicks": 2,
+      "snapshotIntervalMs": 16.59318509268823
+    },
+    "resizeFov": {
+      "landscape": 109.99999999999997,
+      "portrait": 109.99999999999996
+    }
+  },
+  "passed": 39
+}
