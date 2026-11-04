@@ -71,6 +71,7 @@ function buildOverlay(): void {
       </section>
     </div>
     <div class="spectator-follow" id="specFollow" hidden></div>
+    <button class="spectator-reveal" id="specReveal" type="button" hidden>Show controls</button>
     <div class="spectator-help" id="specHelp" hidden>
       <strong>Spectator controls</strong><br />
       <kbd>O</kbd> overview (again: broadcast / full field)<br />
@@ -139,6 +140,7 @@ async function main(): Promise<void> {
   const barEl = $('specBar');
   const playersEl = $('specPlayers');
   const followEl = $('specFollow');
+  const revealButton = $<HTMLButtonElement>('specReveal');
   const helpEl = $('specHelp');
   const helpButton = $('specHelpButton');
   const ballCamButton = $('specBallCam');
@@ -167,6 +169,7 @@ async function main(): Promise<void> {
     joinEl.hidden = watching;
     waitEl.hidden = !watching || live;
     barEl.hidden = !live;
+    revealButton.hidden = !live || !document.body.classList.contains('ui-hidden');
     sound.setMuted(settings.audio.muted || !live || document.hidden);
     if (!live) {
       document.body.classList.remove('ui-hidden');
@@ -239,7 +242,10 @@ async function main(): Promise<void> {
     followCam.ballCam = ballCam;
     renderPlayerButtons();
   };
-  const toggleUi = () => document.body.classList.toggle('ui-hidden');
+  const toggleUi = () => {
+    document.body.classList.toggle('ui-hidden');
+    revealButton.hidden = !session?.ready || !document.body.classList.contains('ui-hidden');
+  };
   const toggleHelp = () => {
     helpEl.hidden = !helpEl.hidden;
     helpButton.setAttribute('aria-expanded', String(!helpEl.hidden));
@@ -300,6 +306,10 @@ async function main(): Promise<void> {
   $('specLeave').addEventListener('click', () => leave());
   $('specLeaveWait').addEventListener('click', () => leave());
   $('specHide').addEventListener('click', toggleUi);
+  revealButton.addEventListener('click', () => {
+    document.body.classList.remove('ui-hidden');
+    revealButton.hidden = true;
+  });
   helpButton.addEventListener('click', toggleHelp);
   ballCamButton.addEventListener('click', toggleBallCam);
   barEl.addEventListener('click', (e) => {

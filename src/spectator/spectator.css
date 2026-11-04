@@ -4,6 +4,10 @@ body.spectator-mode #bottomright.hidden-gauges > #speed, body.spectator-mode #bo
 body.spectator-mode #bottomleft { bottom: 96px; }
 body.spectator-mode.ui-hidden #specHelp, body.spectator-mode.ui-hidden .spectator-bar, body.spectator-mode.ui-hidden #topright, body.spectator-mode.ui-hidden #bottomleft { display: none; }
 
+.spectator-reveal { position: fixed; right: max(12px, env(safe-area-inset-right)); bottom: max(12px, env(safe-area-inset-bottom)); z-index: 6; min-height: 40px; padding: 8px 12px; border-radius: 8px; color: #e8eef5; font: inherit; font-weight: 600; cursor: pointer; touch-action: manipulation; background: rgba(8,20,31,.82); border: 1px solid rgba(185,227,255,.4); }
+.spectator-reveal[hidden] { display: none; }
+.spectator-reveal:focus-visible { outline: 2px solid #ffd166; outline-offset: 2px; }
+
 .spectator-screen { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 18px; box-sizing: border-box;
   background: radial-gradient(1000px 520px at 15% -10%, rgba(74,163,255,.2), transparent 60%), radial-gradient(800px 460px at 100% 110%, rgba(255,154,60,.16), transparent 60%), rgba(5,8,15,.72); }
 .spectator-screen[hidden] { display: none; }
