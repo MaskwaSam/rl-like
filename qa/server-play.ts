@@ -82,6 +82,7 @@ class BrowserSocket extends NodeSocket {
   inputs = 0;
   pings = 0;
   pongs = 0;
+  preAdmissionBinaries = 0;
   constructor(url: string) {
     const browser = context.getStore();
     assert.ok(browser, 'WebSocket constructed within its session cookie context');
@@ -114,6 +115,7 @@ class BrowserSocket extends NodeSocket {
   }
   override send(data: Parameters<NodeSocket['send']>[0], ...rest: any[]): void {
     if (data instanceof Uint8Array && data.byteLength >= 5) {
+      if (!this.controls.some(message => message.t === 'welcome')) this.preAdmissionBinaries++;
       if (data[4] === 1) this.inputs++;
       if (data[4] === 3) this.pings++;
     }
@@ -253,6 +255,8 @@ try {
     && Math.hypot(restoredPosition.x - reconnectPosition.x, restoredPosition.z - reconnectPosition.z) > .1,
     'normal WebSocket reconnect restores same ClientSession seat, progress and acknowledged prediction');
   check(players.every(p => !socket(p).controls.some(c => c.t === 'reject')) && ended.length === 0, 'reconnect and authenticated traffic cause no rejection or unexpected onEnded');
+  check(Browser.all.every(browser => browser.sockets.every(ws => ws.preAdmissionBinaries === 0)),
+    'initial and replacement sockets send no gameplay packets before server admission');
   const epochs = players.map(p => socket(p).epoch);
   const games = players.map(p => p.session.game);
   const starts = players.map(p => p.starts);
@@ -275,6 +279,7 @@ try {
     starts: p.starts, updates: p.updates, predictedSteps: p.predictedSteps, ...p.session.stats })) }));
   console.log('Headless actual-client localhost acceptance only; no WebGL, browser, physical LAN or latency-performance acceptance.');
 } catch (error) {
+  console.error(`Socket admission diagnostics: ${JSON.stringify(Browser.all.map(browser => browser.sockets.map(ws => ({ preAdmissionBinaries: ws.preAdmissionBinaries, inputs: ws.inputs, pings: ws.pings }))))}`);
   console.error(`Bounded child logs:\n${logs}`); throw error;
 } finally {
   clearInterval(healthPoll); running = false; clearTimeout(driver);

@@ -12,6 +12,7 @@ class SocketLink implements GameLink {
   onClose: (() => void) | null = null;
   private ws: WebSocket | null = null;
   private stopped = false;
+  private admitted = false;
   private hello: CtrlMsg | null = null;
   private epoch = 0;
   private disconnectedAt = 0;
@@ -23,17 +24,20 @@ class SocketLink implements GameLink {
     const link = new SocketLink(); await link.connect(); return link;
   }
   private connect(): Promise<void> {
+    this.admitted = false;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/game/ws`);
       this.ws = ws; ws.binaryType = 'arraybuffer';
       const timer = setTimeout(() => { ws.close(); reject(new Error('The server did not answer.')); }, 15000);
       ws.onopen = () => { clearTimeout(timer); this.disconnectedAt = 0; this.attempts = 0; if (this.hello) ws.send(JSON.stringify(this.hello)); resolve(); };
       ws.onmessage = event => {
+        if (this.ws !== ws || this.stopped) return;
         if (event.data instanceof ArrayBuffer) {
           if (event.data.byteLength < 5 || new DataView(event.data).getUint32(0, true) !== this.epoch) return;
           this.onFast?.(event.data.slice(4));
         } else {
           const message: CtrlMsg = JSON.parse(event.data);
+          if (message.t === 'welcome') this.admitted = true;
           if (message.t === 'start') this.epoch = message.epoch ?? 0;
           this.onCtrl?.(message);
         }
@@ -41,6 +45,8 @@ class SocketLink implements GameLink {
       ws.onerror = () => { /* close drives bounded reconnect */ };
       ws.onclose = event => {
         clearTimeout(timer); reject(new Error('Unable to connect to this room.'));
+        if (this.ws !== ws) return;
+        this.admitted = false;
         if (this.stopped) return;
         if (event.code >= 4400 && event.code < 4500) {
           this.onCtrl?.({ t: 'reject', reason: event.code === 4401 ? 'Room opened in another tab.' : event.reason || 'This room is unavailable.' }); this.close(); return;
@@ -61,11 +67,11 @@ class SocketLink implements GameLink {
     // Keep near-deadline frames eligible for preparation: the clock can cross
     // the send boundary while inputs are selected/encoded. sendFast alone
     // enforces the exact cap, so this headroom never permits an early packet.
-    return this.ws?.readyState === WebSocket.OPEN && this.ws.bufferedAmount <= 64 * 1024
+    return this.admitted && !this.stopped && this.ws?.readyState === WebSocket.OPEN && this.ws.bufferedAmount <= 64 * 1024
       && performance.now() - this.lastInputAt >= 1000 / 60 - 1;
   }
   sendFast(buffer: ArrayBuffer): void {
-    if (this.ws?.readyState !== WebSocket.OPEN || this.ws.bufferedAmount > 64 * 1024) return;
+    if (!this.admitted || this.stopped || this.ws?.readyState !== WebSocket.OPEN || this.ws.bufferedAmount > 64 * 1024) return;
     if (new Uint8Array(buffer)[0] === 1) {
       const now = performance.now(); if (now - this.lastInputAt < 1000 / 60) return; this.lastInputAt = now;
     }
@@ -73,7 +79,7 @@ class SocketLink implements GameLink {
     new DataView(packet.buffer).setUint32(0, this.epoch, true); packet.set(new Uint8Array(buffer), 4); this.ws.send(packet);
   }
   close(): void {
-    if (this.stopped) return; this.stopped = true; clearTimeout(this.retry); this.ws?.close(); this.onClose?.();
+    if (this.stopped) return; this.stopped = true; this.admitted = false; clearTimeout(this.retry); this.ws?.close(); this.onClose?.();
   }
 }
 

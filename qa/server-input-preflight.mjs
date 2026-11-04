@@ -81,6 +81,7 @@ async function fixture(version, realGame = false) {
   const link = await api.SocketLink.open();
   const ws = FakeWebSocket.instances.at(-1);
   const client = new api.ClientSession(null, link, 'TEST');
+  ws.control({ t: 'welcome', slot: 0, owner: false });
   client.localId = 0;
   if (realGame) {
     await client.startGame({ ...api.FREE_PLAY_CONFIG, seed: 41 });
@@ -96,6 +97,17 @@ function packetShape(packet) {
 }
 const results = [];
 try {
+  now = 1000;
+  const awaiting = await versions.current.SocketLink.open();
+  const waitingSocket = FakeWebSocket.instances.at(-1);
+  assert.equal(awaiting.canSendInputs(), false, 'open socket must wait for server admission');
+  awaiting.sendFast(versions.current.encodeInputs(0, [input(0)]));
+  awaiting.sendFast(versions.current.encodePing(now));
+  assert.equal(binary(waitingSocket).length, 0, 'direct input and ping calls wait for admission');
+  waitingSocket.control({ t: 'welcome', slot: 0 });
+  assert.equal(awaiting.canSendInputs(), true, 'welcome permits eligible input');
+  awaiting.close();
+
   for (const fps of [120, 240]) {
     const runs = {};
     for (const version of Object.keys(versions)) {
@@ -243,6 +255,21 @@ try {
     reconnect(); await Promise.resolve(); await Promise.resolve();
     const replacement = FakeWebSocket.instances.at(-1);
     assert.ok(replacement.packets.some(p => typeof p === 'string' && JSON.parse(p).t === 'hello'), 'reconnect replays hello');
+    if (version === 'current') {
+      now = 1200;
+      const beforeWelcome = counts(version);
+      ws.control({ t: 'welcome', slot: 0 });
+      assert.equal(link.canSendInputs(), false, 'replacement socket waits for a fresh welcome');
+      client.sendInputs();
+      link.sendFast(api.encodePing(now));
+      assert.deepEqual(counts(version), beforeWelcome, 'admission gap skips input work');
+      assert.equal(binary(replacement).length, 0, 'no gameplay traffic races reconnect admission');
+    }
+    replacement.control({ t: 'welcome', slot: 0 });
+    if (version === 'current') {
+      ws.onclose({ code: 1006 });
+      assert.equal(link.canSendInputs(), true, 'stale close cannot revoke replacement admission');
+    }
     now = 1200; client.sendInputs();
     assert.equal(packetShape(binary(replacement).at(-1)).epoch, 7);
     lifecycle[version] = [...ws.trace, ...replacement.trace];
