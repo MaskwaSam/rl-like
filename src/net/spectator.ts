@@ -61,6 +61,7 @@ export class SpectatorSession {
   private ended = false;
   private startingGame = false;
   private gameGeneration = 0;
+  private matchEpoch: number | null = null;
   private buffered: GameState | null = null;
   private lastSnapshotTick = -1;
   private latestAt = 0;
@@ -139,9 +140,11 @@ export class SpectatorSession {
         this.onLobbyChanged?.();
         break;
       case 'start':
+        this.matchEpoch = msg.epoch ?? null;
         void this.startGame(msg.config);
         break;
       case 'end':
+        this.matchEpoch = null;
         this.gameGeneration++;
         this.reset();
         this.inMatch = false;
@@ -197,10 +200,10 @@ export class SpectatorSession {
   // ---------------------------------------------------------------------------
 
   private onPacket(buf: ArrayBuffer): void {
-    if (buf.byteLength < 1) return;
+    if (this.ended || buf.byteLength < 1) return;
     const r = new ByteReader(buf);
     const type = r.u8();
-    if (type === Packet.Pong) {
+    if (type === Packet.Pong && buf.byteLength === 5) {
       const rtt = (performance.now() >>> 0) - r.u32();
       if (rtt >= 0 && rtt < 5000) {
         this.rttSamples.push(rtt);
@@ -208,8 +211,10 @@ export class SpectatorSession {
         const sorted = [...this.rttSamples].sort((a, b) => a - b);
         this.ping = sorted[Math.floor(sorted.length / 2)];
       }
-    } else if (type === Packet.Snapshot) {
-      r.i32(); // input acknowledgement: not meaningful for a viewer
+    } else if (type === Packet.Snapshot && buf.byteLength >= 9) {
+      // The spectator has no input acknowledgement: that header field identifies the match.
+      // Fast and reliable channels can cross at a rematch; never apply an old match's state.
+      if (this.matchEpoch === null || r.i32() !== this.matchEpoch) return;
       r.u32(); // host time
       this.onSnapshot(Game.decode(r));
     }

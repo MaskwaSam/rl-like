@@ -57,6 +57,7 @@ export class HostSession implements Session {
   private readonly spectators = new Set<Link>();
   private accumulator = 0;
   private inMatch = false;
+  private spectatorEpoch = 0;
   private starting = false;
   private config: GameConfig | null = null;
   private readonly startedAt = performance.now();
@@ -189,7 +190,7 @@ export class HostSession implements Session {
     if (this.spectators.size >= MAX_SPECTATORS) return reject(`Room has the maximum ${MAX_SPECTATORS} spectators`);
     this.spectators.add(link);
     link.sendCtrl({ t: 'welcome', slot: -1, spectator: true });
-    if (this.inMatch && this.config) link.sendCtrl({ t: 'start', config: this.config });
+    if (this.inMatch && this.config) link.sendCtrl({ t: 'start', config: this.config, epoch: this.spectatorEpoch });
     this.broadcastLobby();
     return true;
   }
@@ -320,7 +321,8 @@ export class HostSession implements Session {
     this.starting = false;
     this.accumulator = 0;
     for (const c of this.clients.values()) c.link.sendCtrl({ t: 'start', config });
-    for (const link of this.spectators) link.sendCtrl({ t: 'start', config });
+    this.spectatorEpoch++;
+    for (const link of this.spectators) link.sendCtrl({ t: 'start', config, epoch: this.spectatorEpoch });
     this.broadcastLobby();
     this.onMatchStarted?.();
   }
@@ -365,7 +367,7 @@ export class HostSession implements Session {
     // Viewers get the newest tick once per host frame, not only on even ticks: nothing they
     // receive is older than the host's own screen. They have no inputs to acknowledge.
     if (steps > 0 && this.spectators.size > 0) {
-      const packet = encodeSnapshot(game.snapshotBytes(), -1, performance.now() - this.startedAt);
+      const packet = encodeSnapshot(game.snapshotBytes(), this.spectatorEpoch, performance.now() - this.startedAt);
       for (const link of this.spectators) link.sendFast(packet);
     }
   }

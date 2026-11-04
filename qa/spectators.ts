@@ -1,7 +1,7 @@
 import { EMPTY_INPUT } from '../src/input/types';
 import { ClientSession } from '../src/net/client';
 import { HostSession } from '../src/net/host';
-import { MAX_SPECTATORS, Packet, type CtrlMsg } from '../src/net/protocol';
+import { MAX_SPECTATORS, Packet, encodeSnapshot, type CtrlMsg } from '../src/net/protocol';
 import { SpectatorSession } from '../src/net/spectator';
 import { joinRoom } from './mock-transport';
 
@@ -95,9 +95,27 @@ try {
   await flush();
   check(host.lobby.spectators === 1 && client.lobby.spectators === 1, 'leaving spectators were not removed from the count');
 
+  const oldSnapshot = encodeSnapshot(host.game!.snapshotBytes(), 1, 0);
   host.endMatch(); await flush();
+  linkOf(viewer).other.sendFast(oldSnapshot);
+  await flush();
+  check(!viewer.game, 'old snapshot revived an ended match');
   check(!viewer.game && !viewer.inMatch, 'spectator kept a game after the host ended the match');
-  await host.startMatch(); await advance(10);
+  // Deliver an old high-tick packet across the reliable start / asynchronous game creation.
+  await host.startMatch();
+  linkOf(viewer).other.sendFast(oldSnapshot);
+  await advance(10);
+  check(viewer.game!.tick < 30, 'old-match packet poisoned the new match clock');
+  const freshTick = viewer.game!.tick;
+  const snapshotCount = viewer.stats.snapshots;
+  linkOf(viewer).other.sendFast(oldSnapshot);
+  // A truncated pong must not abort the packet callback either.
+  linkOf(viewer).other.sendFast(new Uint8Array([Packet.Pong]).buffer);
+  await flush();
+  check(viewer.game!.tick === freshTick && viewer.stats.snapshots === snapshotCount, 'stale match packet was applied after new synchronization');
+  await advance(5);
+  check(viewer.game!.tick > freshTick, 'new snapshots stopped after a stale match packet');
+  console.log('PASS old-match packets rejected across end/start and after new synchronization; truncated pong ignored');
   check(viewer.ready && started === 2, 'spectator did not follow a rematch');
   console.log('PASS leave count, match end and rematch follow the host');
 

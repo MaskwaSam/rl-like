@@ -111,7 +111,7 @@ async function main(): Promise<void> {
   renderer.setQuality(settings.graphics.quality);
   const sound = new SoundManager();
   sound.setVolume(settings.audio.volume);
-  sound.setMuted(settings.audio.muted);
+  sound.setMuted(true);
   const iceReady = loadIceConfig();
 
   const hudEl = $('hud');
@@ -167,6 +167,13 @@ async function main(): Promise<void> {
     joinEl.hidden = watching;
     waitEl.hidden = !watching || live;
     barEl.hidden = !live;
+    sound.setMuted(settings.audio.muted || !live || document.hidden);
+    if (!live) {
+      document.body.classList.remove('ui-hidden');
+      helpEl.hidden = true;
+      helpButton.setAttribute('aria-expanded', 'false');
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
     if (!watching) setTimeout(() => codeInput.focus(), 0);
     if (watching && !live) {
       $('specWaitCode').textContent = session!.code;
@@ -184,9 +191,10 @@ async function main(): Promise<void> {
   let playerButtonsKey = '';
   const renderPlayerButtons = () => {
     const list = roster();
-    const key = JSON.stringify([list.map((p) => [p.slot, p.name, p.team]), mode, followId]);
+    const key = JSON.stringify([list.map((p) => [p.slot, p.name, p.team]), mode, followId, ballCam]);
     if (key === playerButtonsKey) return;
     playerButtonsKey = key;
+    boostText.clear(); // New DOM nodes need values even when the boost has not changed.
     playersEl.innerHTML = list.map((p, i) => `<button type="button" class="${p.team}${mode === 'player' && p.slot === followId ? ' active' : ''}" data-slot="${p.slot}">
       <span>${escapeHtml(p.name || `Player ${p.slot + 1}`)}</span><span class="boost" data-boost="${p.slot}"></span><kbd>${i + 1}</kbd></button>`).join('');
     for (const b of barEl.querySelectorAll<HTMLButtonElement>('[data-mode]')) b.classList.toggle('active', b.dataset.mode === mode);
@@ -195,6 +203,10 @@ async function main(): Promise<void> {
   };
 
   const setMode = (next: Mode, slot?: number) => {
+    if (next !== 'free' && mode === 'free') {
+      if (document.pointerLockElement) document.exitPointerLock();
+      look.x = look.y = 0;
+    }
     if (next === 'free' && mode !== 'free') freeCam.takeOver(camera);
     if (next === 'overview' && mode === 'overview') overview.toggleStyle();
     if (next === 'overview' && mode !== 'overview') overview.reset();
@@ -247,6 +259,7 @@ async function main(): Promise<void> {
   };
 
   const watch = async (raw: string) => {
+    if (watchButton.disabled) return;
     const code = normalizeCode(raw);
     if (!code) return;
     leave();
@@ -262,6 +275,10 @@ async function main(): Promise<void> {
         overview.reset();
         lastScore = '';
         lastPhase = '';
+        lastCountdown = -1;
+        hideBanner();
+        resetSoundEdges();
+        followCam = new FollowCamera(settings);
         showScreens();
       };
       s.onEnded = (reason) => { if (session === s) leave(reason); };
@@ -295,6 +312,12 @@ async function main(): Promise<void> {
 
   // --- Keyboard, mouse and touch ------------------------------------------------------
 
+  // A room link can auto-join before any audio gesture. Resume on the first interaction.
+  window.addEventListener('pointerdown', () => sound.start());
+  window.addEventListener('keydown', () => sound.start());
+  document.addEventListener('visibilitychange', () => {
+    sound.setMuted(settings.audio.muted || !session?.ready || document.hidden);
+  });
   const held = new Set<string>();
   const look = { x: 0, y: 0 };
   window.addEventListener('keydown', (e) => {
@@ -432,8 +455,6 @@ async function main(): Promise<void> {
   let lastLive = '';
   let lastBoost = -1;
   let lastSpeed = -1;
-  let ballCamBeforeGoal = true;
-  let wasGoal = false;
   const boostText = new Map<number, string>();
 
   const frame = (now: number) => {
@@ -472,10 +493,7 @@ async function main(): Promise<void> {
     }
 
     // Goal pause: no ball to look at, so car cam until kickoff, then back to the viewer's choice.
-    const inGoal = game.phase === 'goal';
-    if (inGoal && !wasGoal) { ballCamBeforeGoal = ballCam; followCam.ballCam = false; }
-    else if (!inGoal && wasGoal) followCam.ballCam = ballCamBeforeGoal;
-    wasGoal = inGoal;
+    followCam.ballCam = ballCam && game.phase !== 'goal';
 
     const followed = mode === 'player' ? game.cars.get(followId) ?? null : null;
     const carObj = followed ? renderer.carObject(followId) : null;

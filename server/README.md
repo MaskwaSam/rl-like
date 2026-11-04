@@ -76,7 +76,13 @@ must be reviewed for the invite flow before rollout; do not assume existing inje
 Run `npm run build`, `npm run server:build`, `npm run test:headless`, `npm run test:modes`,
 `npm run test:private`, `npm run test:spectators` and `npm run test:spectator-host`. Private tests use real localhost HTTP/WebSockets and worker physics with
 ephemeral random test passwords, never production credentials. The desktop/mobile Playwright
-checks and screenshots are outside the repository in the workspace evidence folder.
+harness is `qa/spectator-browser.mjs`; it writes its report and screenshots to
+`.qa-build/spectator-browser/`. With Playwright and Chromium installed, run
+`node qa/spectator-browser.mjs`. If Playwright is outside this project, set
+`PLAYWRIGHT_MODULE` to its absolute `index.mjs` path. It uses two local browser contexts,
+real PeerJS signalling (internet required), and ephemeral credentials. Ports 4100 and 4213
+must be available for browser and hostname checks respectively. The browser harness suppresses
+most draws to keep software WebGL from starving the simulation; it is not a frame-rate benchmark.
 
 `Dockerfile` pins the official Node 24 Alpine manifest digest read from Docker Registry on
 October 2, 2026. `compose.example.yml` is a review-only recipe: retain the existing internal edge

@@ -92,6 +92,7 @@ export function decodeInputs(r: ByteReader): { firstTick: number; inputs: CarInp
 /**
  * Host -> client: header then the serialised game. `lastInputTick` is the newest input tick the
  * host has received from this client, so the client can tell how far ahead it should run.
+ * Spectator-only packets reuse lastInputTick for the match epoch sent in the start control.
  */
 export function encodeSnapshot(state: ArrayBuffer, lastInputTick: number, hostTimeMs: number): ArrayBuffer {
   const out = new ArrayBuffer(1 + 4 + 4 + state.byteLength);

@@ -2,7 +2,7 @@
 body.spectator-mode #controller, body.spectator-mode #playHints, body.spectator-mode #matchRetry { display: none !important; }
 body.spectator-mode #bottomright.hidden-gauges > #speed, body.spectator-mode #bottomright.hidden-gauges > #boostGauge { visibility: hidden; }
 body.spectator-mode #bottomleft { bottom: 96px; }
-body.spectator-mode.ui-hidden .spectator-bar, body.spectator-mode.ui-hidden #topright, body.spectator-mode.ui-hidden #bottomleft { display: none; }
+body.spectator-mode.ui-hidden #specHelp, body.spectator-mode.ui-hidden .spectator-bar, body.spectator-mode.ui-hidden #topright, body.spectator-mode.ui-hidden #bottomleft { display: none; }
 
 .spectator-screen { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 18px; box-sizing: border-box;
   background: radial-gradient(1000px 520px at 15% -10%, rgba(74,163,255,.2), transparent 60%), radial-gradient(800px 460px at 100% 110%, rgba(255,154,60,.16), transparent 60%), rgba(5,8,15,.72); }
