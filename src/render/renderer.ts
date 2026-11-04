@@ -352,7 +352,7 @@ export class Renderer {
         const y = 1.15 + bob;
         const sc = active ? 1 : 0;
         this.padMatrix.makeRotationY(this.padTime * 0.8 + v.phase);
-        this.padMatrix.scale(new THREE.Vector3(sc, sc, sc));
+        this.padMatrix.scale(this.tmpV.setScalar(sc));
         this.padMatrix.setPosition(v.x, y, v.z);
         this.bigOrbs.setMatrixAt(v.index, this.padMatrix);
         if (v.halo) {

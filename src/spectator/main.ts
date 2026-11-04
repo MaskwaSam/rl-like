@@ -531,7 +531,8 @@ async function main(): Promise<void> {
       clockEl.textContent = clockText;
       clockEl.classList.toggle('overtime', game.overtime);
     }
-    camModeEl.textContent = mode === 'player' ? (followCam.ballCam ? 'BALL CAM' : 'CAR CAM') : mode === 'free' ? 'FREE CAM' : overview.style === 'broadcast' ? 'BROADCAST' : 'FULL FIELD';
+    const cameraLabel = mode === 'player' ? (followCam.ballCam ? 'BALL CAM' : 'CAR CAM') : mode === 'free' ? 'FREE CAM' : overview.style === 'broadcast' ? 'BROADCAST' : 'FULL FIELD';
+    if (camModeEl.textContent !== cameraLabel) camModeEl.textContent = cameraLabel;
     camModeEl.classList.toggle('on', mode !== 'player' || followCam.ballCam);
 
     const player = s.players.find((p) => p.slot === followId);
@@ -539,7 +540,8 @@ async function main(): Promise<void> {
     if (followed) {
       const label = `${player?.name || `Player ${followId + 1}`}`;
       if (followEl.textContent !== label) followEl.textContent = label;
-      followEl.className = `spectator-follow ${followed.team}`;
+      const followClass = `spectator-follow ${followed.team}`;
+      if (followEl.className !== followClass) followEl.className = followClass;
     }
     bottomRightEl.classList.toggle('hidden-gauges', !followed);
     if (followed) {
@@ -552,7 +554,8 @@ async function main(): Promise<void> {
         boostValueEl.textContent = String(boost);
         boostFillEl.style.strokeDashoffset = `${GAUGE_CIRCUMFERENCE * (1 - boost / CAR.boostMax)}`;
       }
-      boostFillEl.setAttribute('class', `fill ${followed.boosting ? 'boosting' : boost === 0 ? 'empty' : ''}`);
+      const boostClass = `fill ${followed.boosting ? 'boosting' : boost === 0 ? 'empty' : ''}`;
+      if (boostFillEl.getAttribute('class') !== boostClass) boostFillEl.setAttribute('class', boostClass);
     }
     for (const [id, car] of game.cars) {
       const text = String(Math.round(car.boost));
