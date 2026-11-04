@@ -12,7 +12,7 @@ spec.loader.exec_module(op)
 REAL_RECOVERY = op.recovery_state
 RELEASE = '20261104-spectator-0123456789ab'
 ENV = ('UNCHANGED=1\nCAR_RELEASE=' + op.BASELINE_RELEASE + '\nTAIL=yes\n').encode()
-COMPOSE = b'services:\n  car-soccer:\n    environment:\n      CAR_ORIGIN: https://car.spatterson.ca\n      OTHER: unchanged\n'
+COMPOSE = b'services:\n  car-soccer:\n    environment:\n      CAR_ORIGIN: https://car.spatterson.ca\n      CAR_SPECTATOR_ORIGIN: https://carspectator.spatterson.ca\n      OTHER: unchanged\n'
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
@@ -40,14 +40,22 @@ class ReleaseTests(unittest.TestCase):
     def test_exact_delta(self):
         env, compose = op.config_delta(ENV, COMPOSE, RELEASE)
         self.assertEqual(env, ENV.replace(op.BASELINE_RELEASE.encode(), RELEASE.encode()))
-        self.assertEqual(compose, COMPOSE.replace(b'      CAR_ORIGIN: https://car.spatterson.ca\n', b'      CAR_ORIGIN: https://car.spatterson.ca\n' + op.SPECTATOR_LINE))
-        self.assertEqual(compose.replace(op.SPECTATOR_LINE, b''), COMPOSE)
+        self.assertEqual(compose, COMPOSE)
+        self.assertEqual(digest(compose), digest(COMPOSE))
 
     def test_ambiguous_configs_rejected(self):
         for env in [ENV + b'CAR_RELEASE=other\n', ENV.replace(op.BASELINE_RELEASE.encode(), b'unknown'), b'OTHER=1\n']:
             with self.subTest(env=env), self.assertRaises(RuntimeError):
                 op.config_delta(env, COMPOSE, RELEASE)
-        for compose in [COMPOSE + op.SPECTATOR_LINE, COMPOSE + b'      CAR_ORIGIN: duplicate\n', COMPOSE.replace(b'CAR_ORIGIN:', b'OTHER_ORIGIN:'), COMPOSE.replace(b'\n', b'\r\n')]:
+        for compose in [
+            COMPOSE.replace(op.SPECTATOR_LINE, b''),
+            COMPOSE + op.SPECTATOR_LINE,
+            COMPOSE.replace(b'https://carspectator.spatterson.ca', b'https://wrong.example'),
+            COMPOSE.replace(b'https://car.spatterson.ca', b'https://wrong.example'),
+            COMPOSE + b'      CAR_ORIGIN: duplicate\n',
+            COMPOSE.replace(b'CAR_ORIGIN:', b'OTHER_ORIGIN:'),
+            COMPOSE.replace(b'\n', b'\r\n'),
+        ]:
             with self.subTest(compose=compose), self.assertRaises(RuntimeError):
                 op.config_delta(ENV, compose, RELEASE)
 
@@ -78,6 +86,7 @@ class ReleaseTests(unittest.TestCase):
                 root = Path(tmp)
                 with patch.object(op, 'ROOT', root):
                     record, new_env, new_compose = self.fixture(root)
+                    self.assertEqual(record['compose_sha256'], record['activated_compose_sha256'])
                     (root / '.env').write_bytes(new_env if env_new else ENV)
                     (root / 'compose.yaml').write_bytes(new_compose if compose_new else COMPOSE)
                     calls = []

@@ -23,11 +23,11 @@ import time
 ROOT = Path('/home/sam/services/car-soccer')
 BASE_TAG = 'car-soccer-private:20261003T224415Z-9bd5cb33108a-8cb0e27bcd04'
 BASE_ID = 'sha256:437a58fabdbc431d6b6a8f83f80145caa3431472a2b4df5be5677998b5ef0ce9'
-BASELINE_RELEASE = '20261024-controller-notices-c825a5e2fe92'
-EXPECTED_CONFIG = {'env_sha256': 'a24ed35b599c8ca5c8e2719a5b7d547d2ff127f639f127131e79efa126bd13f7', 'compose_sha256': '5c24784e28afa0199a1341c7ec62840130e75e3661ef082433e0003f055e0013'}
+BASELINE_RELEASE = '20261104-spectator-8c9a197033bc'
+EXPECTED_CONFIG = {'env_sha256': '46224dfc43086a278ec0ded6252ffc7ab8022297c6966e18596baf36ef11f920', 'compose_sha256': '797e82d12efebcb4bd668654794ab5acb101f1e58f12263a116ebbb35ee098d8'}
 BASELINE_TAG = 'car-soccer-private:' + BASELINE_RELEASE
-BASELINE_IMAGE_ID = 'sha256:2eba7107d939c2d9ff515992265b42f7bb44d16d15924e219d8971820f412ffb'
-BASELINE_SOURCE_COMMIT = 'c825a5e2fe928f6101dc8a949db8ea6c7a64d3bb'
+BASELINE_IMAGE_ID = 'sha256:41b3fe3554c10515b739d76f00357fb088485a2ec153cdfc690480e4dbfddcf4'
+BASELINE_SOURCE_COMMIT = '8c9a197033bc5581738347beea2dbb60911431fc'
 COMPOSE = ['docker', 'compose', '--project-name', 'car-soccer', '--env-file', str(ROOT / '.env'), '-f', str(ROOT / 'compose.yaml')]
 
 
@@ -115,13 +115,12 @@ def config_delta(env, compose, release):
     require(re.fullmatch(r'20261104-spectator-[0-9a-f]{12}', release), 'Invalid spectator release')
     matches = list(re.finditer(rb'(?m)^CAR_RELEASE=([^\r\n]*)$', env))
     require(len(matches) == 1 and matches[0].group(1).decode() == BASELINE_RELEASE, 'Unexpected CAR_RELEASE setting')
-    require(b'CAR_SPECTATOR_ORIGIN' not in compose, 'Spectator setting already exists')
     lines = compose.splitlines(keepends=True)
-    positions = [i for i, line in enumerate(lines) if line.startswith(b'      CAR_ORIGIN:')]
-    require(len(positions) == 1 and lines[positions[0]].endswith(b'\n') and not lines[positions[0]].endswith(b'\r\n'), 'Expected one LF CAR_ORIGIN line')
-    lines.insert(positions[0] + 1, SPECTATOR_LINE)
+    require(compose.count(b'CAR_SPECTATOR_ORIGIN') == 1 and lines.count(SPECTATOR_LINE) == 1, 'Expected one exact spectator origin line')
+    game_line = b'      CAR_ORIGIN: https://car.spatterson.ca\n'
+    require(compose.count(b'CAR_ORIGIN') == 1 and lines.count(game_line) == 1, 'Expected one exact game origin line')
     m = matches[0]
-    return env[:m.start(1)] + release.encode() + env[m.end(1):], b''.join(lines)
+    return env[:m.start(1)] + release.encode() + env[m.end(1):], compose
 
 
 def validate_restore_configs(record):
@@ -235,7 +234,7 @@ def package(release, digest):
     safe(stage / 'manifest.json')
     require(sha(stage / 'manifest.json') == digest, 'Manifest digest mismatch')
     m = json.loads((stage / 'manifest.json').read_bytes())
-    require(re.fullmatch(r'20261104-spectator-[0-9a-f]{12}', release), 'Unexpected Controller connection notices release namespace')
+    require(re.fullmatch(r'20261104-spectator-[0-9a-f]{12}', release), 'Unexpected spectator release namespace')
     require(m['operator_sha256'] == sha(Path(__file__)), 'Package operator digest mismatch')
     require(m['identity']['baseline_source_commit'] == BASELINE_SOURCE_COMMIT, 'Unexpected package source baseline')
     require(m['identity']['release'] == release and re.fullmatch(r'[0-9a-f]{40}', m['identity']['source_commit']), 'Invalid package identity')

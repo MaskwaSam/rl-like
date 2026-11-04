@@ -1,15 +1,28 @@
 # Bounded spectator release tooling
 
-These tools adapt the October 24 controller-notices helpers. They do not connect,
+These tools are for the next LAN optimization release atop the already-configured
+spectator deployment. They do not connect,
 copy to a server, request secrets, change DNS/provider settings, or install remote
 npm dependencies. The operator is a Linux-host program; do not execute its actions
 on a workstation. The parent owns approval, transport, authentication setup,
-independent review, activation, and public/device acceptance.
+independent review, packaging/staging, activation, and public/device acceptance.
+Do not use this operator for initial spectator setup or older rollback records.
+The accepted live baseline supplied by the parent is:
+
+- Release: `20261104-spectator-8c9a197033bc`
+- Source: `8c9a197033bc5581738347beea2dbb60911431fc`
+- Image: `sha256:41b3fe3554c10515b739d76f00357fb088485a2ec153cdfc690480e4dbfddcf4`
+- `.env` SHA-256: `46224dfc43086a278ec0ded6252ffc7ab8022297c6966e18596baf36ef11f920`
+- Compose SHA-256: `797e82d12efebcb4bd668654794ab5acb101f1e58f12263a116ebbb35ee098d8`
+
+The older overlay `BASE_TAG`/`BASE_ID` remain unchanged; they identify the
+accepted dependency/runtime layers, separately from the current live baseline.
 
 ## Freeze and package locally
 
 Commit the reviewed integration and these **four** files first. Freeze the exact
-new 40-character HEAD; do not use `d90bdd6` after committing the tools. From the
+new 40-character HEAD atop `ee2b0a1f772b4b0592196d82ba85f12713fc22a6`;
+do not use the parent SHA after committing the tools. From the
 repository, with existing local npm dependencies:
 
 ```sh
@@ -31,9 +44,11 @@ commit/inventory, exact output inventories, copied build bytes and final tarball
 inventory are checked. `dist/` and `.server-build/` alone are cleared and freshly
 built locally. Build commands are the existing `npm run build` and
 `npm run server:build`; the operator does no npm install/build. The source allowlist
-is an explicit list of the baseline-to-`d90bdd6` paths plus these four owned files.
+is an explicit list of the
+`8c9a197033bc5581738347beea2dbb60911431fc`-to-`ee2b0a1` paths plus these four
+owned files.
 Any extra/missing changed path fails packaging. The dependency lock and dependency
-declarations must match `c825a5e2fe928f6101dc8a949db8ea6c7a64d3bb`.
+declarations must match `8c9a197033bc5581738347beea2dbb60911431fc`.
 `public/turn.json` remains opaque: bind it through the supplied size/SHA-256 and
 unchanged git blob identity; never print or parse relay credentials. Normal builds
 copy that existing public asset unchanged.
@@ -77,14 +92,18 @@ protected anonymous bundle denial, blocked room/join/invite/leave APIs, metrics,
 and WebSocket upgrade rejection. Production-origin activation probes use no
 production credentials; the parent must perform the real authenticated edge
 acceptance separately. Preparation receipts pin both old and intended new config
-hashes and the exact baseline container state.
+hashes and the exact baseline container state. Each fresh prepare captures current
+neighbor state; activation and rollback require that captured state. Prior records
+are immutable and no drift exceptions are supported.
 
 Activation consumes an exclusive rollback directory before writing. It backs up
 both originals and records both old/new hash pairs durably first. Its only content
-changes are `CAR_RELEASE=old` to the new release and the following exact LF line
-immediately after the sole existing six-space `CAR_ORIGIN:` line:
+change is `CAR_RELEASE=20261104-spectator-8c9a197033bc` to the new release.
+Compose is retained byte-for-byte, after validating exactly one existing spectator
+origin line and exactly one expected game origin line (both exact LF lines):
 
 ```yaml
+      CAR_ORIGIN: https://car.spatterson.ca
       CAR_SPECTATOR_ORIGIN: https://carspectator.spatterson.ca
 ```
 
@@ -99,8 +118,9 @@ for an additional session reset. An interrupted rollback without that receipt ca
 be retried with the same pinned operator and record. Rollback verifies the original image pin and both backup hashes. Before either
 write, each current config must independently match its recorded old or new hash;
 all four old/new combinations are supported, including interruptions between the
-two writes. It restores **both** originals and validates Compose before recreating
-only this app. Unknown edits, unsafe file types, changed root/lock, altered image
+two writes. For this release the old/new Compose hashes are identical; rollback
+still validates and restores **both** originals and their security metadata, then
+validates Compose before recreating only this app. Unknown edits, unsafe file types, changed root/lock, altered image
 pins or altered neighbor/authentication state fail closed. Keep `rollback/`, its
 `record.json`, both root config originals and the baseline image intact. A failed
 restore or unknown current file requires parent inspection; do not delete the
@@ -109,7 +129,8 @@ exclusive activation directory or loosen guards to retry.
 ## Verification boundaries
 
 The local unittest suite uses synthetic files and fake Docker responses; it
-covers exact config transformations, injected activation failures immediately after
+covers byte-preserving already-configured Compose, absent/duplicate/wrong origins,
+exact config transformations, injected activation failures immediately after
 each config write, durable backup/hash ordering, ambiguous/unknown config refusal, all four
 partial-write recovery combinations, tampered backups, unsafe file links and
 Compose validation ordering/scope. Linux xattrs are modeled in the macOS test
@@ -118,6 +139,6 @@ headroom, and browser/device/multiplayer behavior still require the parent's
 independent host review and acceptance. No package build or host action is run
 while these tools remain uncommitted.
 
-Recovery also permits a stopped pinned Car Soccer container, or absence confirmed by a successful Docker listing. A failed Docker command is never treated as absence. Shared neighbor and authentication metadata are checked before any recovery write, and again after recreation. Eleven local tests cover these cases, including refusing unrelated images and drift before mutation.
+Recovery also permits a stopped pinned Car Soccer container, or absence confirmed by a successful Docker listing. A failed Docker command is never treated as absence. Shared neighbor and authentication metadata are checked before any recovery write, and again after recreation. Local tests cover these cases, including refusing unrelated images and drift before mutation.
 
-Use the distinct release_operator.py filename and Python isolated mode (-I) for host execution; a bare operator.py filename shadows the Python standard library on direct startup. The direct --help startup is included in the 12-test local suite.
+Use the distinct release_operator.py filename and Python isolated mode (-I) for host execution; a bare operator.py filename shadows the Python standard library on direct startup. The direct --help startup is included in the local suite.
