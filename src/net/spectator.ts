@@ -16,7 +16,7 @@ import { DEFAULT_MATCH_SETTINGS, PROTOCOL_VERSION, Packet, clampBody, encodePing
 import { joinRoom } from './transport';
 import type { GameLink } from './channel';
 import { liveCarState, type CarRenderState } from './session';
-import { createSpectatorAdmission } from '../../qa/spectator-admission';
+import { createSpectatorAdmission } from './spectator-admission';
 
 /** Never extrapolate further than this past the newest snapshot (a stalled host freezes, it does not fly off). */
 const MAX_EXTRAPOLATE_TICKS = 18;
