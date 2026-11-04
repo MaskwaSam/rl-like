@@ -30,6 +30,7 @@ interface TrailPoint {
 export class Ribbon {
   readonly mesh: THREE.Mesh;
   private readonly points: TrailPoint[] = [];
+  private readonly freePoints: TrailPoint[] = [];
   private readonly positions: Float32Array;
   private readonly colors: Float32Array;
   private readonly geometry: THREE.BufferGeometry;
@@ -69,14 +70,19 @@ export class Ribbon {
   addPoint(p: THREE.Vector3): void {
     const last = this.points[0];
     if (last && last.pos.distanceToSquared(p) < 0.0004) return; // not moving: no new segment
-    if (this.points.length >= this.maxPoints) this.points.pop();
-    this.points.unshift({ pos: p.clone(), age: 0 });
+    // Reuse the oldest point at capacity, or a point retired by expiry/clear.
+    const point = (this.points.length >= this.maxPoints ? this.points.pop() : undefined)
+      ?? this.freePoints.pop()
+      ?? { pos: new THREE.Vector3(), age: 0 };
+    point.pos.copy(p);
+    point.age = 0;
+    this.points.unshift(point);
   }
 
   /** Age points, drop dead ones, rebuild the camera-facing quads. */
   update(dt: number, cameraPos: THREE.Vector3): void {
     for (const pt of this.points) pt.age += dt;
-    while (this.points.length && this.points[this.points.length - 1].age > this.lifetime) this.points.pop();
+    while (this.points.length && this.points[this.points.length - 1].age > this.lifetime) this.freePoints.push(this.points.pop()!);
     const n = this.points.length;
     if (n < 2) {
       this.geometry.setDrawRange(0, 0);
@@ -116,6 +122,7 @@ export class Ribbon {
   }
 
   clear(): void {
+    for (const point of this.points) this.freePoints.push(point);
     this.points.length = 0;
     this.geometry.setDrawRange(0, 0);
     this.mesh.visible = false;
