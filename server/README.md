@@ -93,11 +93,11 @@ network and origin port 8080, with no host ports or DNS/Tunnel changes. It repla
 Car Soccer runtime only; it does not operate other services. Proposed initial budget is one CPU,
 512 MiB RAM and bounded logs. These are bounds, not a measured eight-player capacity promise.
 
-No container build or server rollout has been run. SPN100 storage recovery is owned separately;
-do not stage files/build images there until current headroom is verified and coordinated.
-Preserve the accepted 4140197 image, configuration and rollback receipt. Before activation:
-prepare a hash privately, validate file readability as UID 101 without exposing the value,
-stage the candidate, test HTTPS/WSS and adversarial access with separate clients, and verify
-neighbors/resources. Request action-time approval for activating production authentication.
-Rollback restores the prior immutable image and configuration; it loses new in-memory rooms.
-No storage offload, prune, resize or application-data movement is part of this refactor.
+The spectator release was deployed to SPN100 on November 4, 2026 using the existing production
+password file and one Car-only container replacement. The current proof, exact image/config
+pins, retained prior release and recovery limits are in
+[the deployment receipt](../docs/verification/spectator-live-2026-11-04/README.md).
+Future releases must refresh headroom and the live baseline, preserve authentication metadata,
+validate UID 101 access without reading the password hash, test an isolated candidate, and
+check public access and neighboring services. Rollback loses in-memory rooms and sessions.
+Storage offload, pruning, resizing and application-data movement remain separate work.

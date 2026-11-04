@@ -51,9 +51,28 @@ The second is what the Metered dashboard's **TURN Server -> Show ICE Servers Arr
 
 Known limits: a client cannot reset the match; if the host closes the tab the room ends; the PeerJS public broker occasionally refuses connections, in which case hosting again gets a new code. The host sends seven snapshot streams in a full 4v4 match, so connection quality and host performance matter.
 
+## Watching a LAN match
+
+The host opens [car.spatterson.ca](https://car.spatterson.ca), logs in, and chooses
+**Multiplayer → Host LAN room**. Viewers open
+[carspectator.spatterson.ca](https://carspectator.spatterson.ca), use the same game password,
+enter the host's five-character room code, and select **Watch**. Each viewer logs in separately.
+Up to eight viewers can watch without taking a player slot. This watches browser-hosted LAN rooms.
+
+Use **Overview** (`O`, again for full-field view), **Players** (`1`–`8`), or **Free cam** (`F`).
+Free cam uses WASD, mouse look after clicking the pitch, Space/E to rise, Q/Ctrl to descend,
+and Shift to move faster. **Hide** leaves a **Show controls** button available on touchscreens.
+For the lowest delay, keep the host's tab in the foreground and use the same wired or Wi-Fi LAN.
+Room setup requires internet access. Direct connections depend on the network.
+
 ## Deploying
 
-`.github/workflows/deploy.yml` builds `dist/` with Vite and publishes it to GitHub Pages on every push to `main` (Pages source set to *GitHub Actions*). Vite's `base: './'` keeps the site working under the `/rl-like/` path. Nothing else to run: the multiplayer needs no server of ours.
+The authenticated production service and spectator hostname run on SPN100. See
+[the November 4 release receipt](docs/verification/spectator-live-2026-11-04/README.md)
+for the deployed commit/image, acceptance limits and guarded recovery instructions, and
+[server/README.md](server/README.md) for the server's access and room contract.
+
+The alternative static `.github/workflows/deploy.yml` builds `dist/` with Vite and publishes it to GitHub Pages on every push to `main` (Pages source set to *GitHub Actions*). Vite's `base: './'` keeps the site working under the `/rl-like/` path. LAN play uses browser hosting and PeerJS signalling.
 
 ## Default controls
 

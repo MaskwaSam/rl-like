@@ -1,0 +1,44 @@
+{
+  "transport": {
+    "available": true,
+    "connectionState": "connected",
+    "fastChannel": {},
+    "iceState": "connected",
+    "pair": "host -> host",
+    "pingMs": 32,
+    "snapshots": 18411
+  },
+  "gameAssets": {
+    "anonymousProtectedBundleStatus": 401,
+    "failures": [],
+    "matched": 10,
+    "total": 10
+  },
+  "spectatorAssets": {
+    "anonymousProtectedBundleStatus": 401,
+    "failures": [],
+    "matched": 10,
+    "total": 10
+  },
+  "checks": [
+    "Both public HTTPS gates and existing password login",
+    "Spectator watcher admission from real LAN host room code",
+    "One player and one watcher; no player slot consumed",
+    "Match start synchronized live snapshots",
+    "Overview, player follow, free camera movement",
+    "Hide/Show preserved the selected camera",
+    "End match returned viewer to waiting",
+    "Rematch synchronized fresh low ticks",
+    "Host departure cleared viewer and showed terminal reason",
+    "Spectator create/join/invite/leave/metrics returned 404",
+    "Spectator WebSocket upgrade rejected",
+    "Both QA grants revoked and temporary graphics preferences restored"
+  ],
+  "limits": [
+    "One browser machine using both public origins; not two physical LAN devices",
+    "Shared preview rendering and keyboard scheduling varied; no FPS or controller-to-photon latency claim",
+    "Public resize tool did not apply portrait dimensions; local real Chromium regression covered resize",
+    "Fast channel used initially then reliable fallback; no sustained public fast-channel acceptance claim",
+    "Synthetic host keyboard driving did not establish car movement in this preview; existing local browser test did"
+  ]
+}

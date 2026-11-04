@@ -1,0 +1,207 @@
+{
+  "verified_utc": "2026-11-04T15:28:41Z",
+  "release": "20261104-spectator-8c9a197033bc",
+  "source_commit": "8c9a197033bc5581738347beea2dbb60911431fc",
+  "image_id": "sha256:41b3fe3554c10515b739d76f00357fb088485a2ec153cdfc690480e4dbfddcf4",
+  "container_id": "680851090bb23e690211d883e1fce26440f31e55a884835c41f11d4c22b7551b",
+  "health": "healthy",
+  "restarts": 0,
+  "neighbors_preserved_at_activation": 50,
+  "neighbor_containers_unchanged": 49,
+  "neighbor_changes_after_activation": {
+    "webgpu-webgpu-1": {
+      "before": {
+        "cap_drop": [
+          "ALL"
+        ],
+        "id": "d5b69af43f4154410687deea5efba7fbceece5e689753b96559da8b6ea081814",
+        "image_id": "sha256:2de76a327eee0cb16b3391ba4d719ec94eedf8f593511b3143187a111554cbf6",
+        "memory": 2147483648,
+        "mounts": [
+          {
+            "destination": "/data",
+            "rw": true,
+            "source": "/home/sam/services/webgpu/data",
+            "type": "bind"
+          }
+        ],
+        "nano_cpus": 2000000000,
+        "networks": {
+          "webgpu_edge": {
+            "aliases": [
+              "webgpu-webgpu-1",
+              "webgpu",
+              "webgpu"
+            ],
+            "id": "bc715fb33602edf6e92e2c554ce5af7466ff78326a0d6342b170e092174cf1ac"
+          }
+        },
+        "pids_limit": 128,
+        "ports": {
+          "3219/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "3223"
+            }
+          ]
+        },
+        "readonly": true,
+        "restart_count": 0,
+        "running": true,
+        "security_opt": [
+          "no-new-privileges:true"
+        ],
+        "started_at": "2026-10-31T04:44:09.178530853Z",
+        "user": "1000:1000"
+      },
+      "after": {
+        "id": "c17127506029c43bba5d57b17720f1563731a53d4d6ca2251ca694346bc12177",
+        "image_id": "sha256:d3d3c4dc195f2289033fd61e563ad1afb4cd7943d622586b273a6c3d9e8376ed",
+        "running": true,
+        "started_at": "2026-11-04T15:23:56.958692699Z",
+        "restart_count": 0,
+        "networks": {
+          "webgpu_edge": {
+            "id": "bc715fb33602edf6e92e2c554ce5af7466ff78326a0d6342b170e092174cf1ac",
+            "aliases": [
+              "webgpu-webgpu-1",
+              "webgpu",
+              "webgpu"
+            ]
+          }
+        },
+        "user": "1000:1000",
+        "readonly": true,
+        "memory": 2147483648,
+        "nano_cpus": 2000000000,
+        "pids_limit": 128,
+        "cap_drop": [
+          "ALL"
+        ],
+        "security_opt": [
+          "no-new-privileges:true"
+        ],
+        "ports": {
+          "3219/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "3223"
+            }
+          ]
+        },
+        "mounts": [
+          {
+            "type": "bind",
+            "source": "/home/sam/services/webgpu/data",
+            "destination": "/data",
+            "rw": true
+          }
+        ]
+      }
+    }
+  },
+  "changed_neighbor_health": "healthy; zero restarts",
+  "authentication_metadata_unchanged": true,
+  "configuration_security_unchanged": true,
+  "connector_id": "f756286bfb78f029bb99a7d17932e885809ae96485d2defa32ab4504137d4d0c",
+  "connector_restarts": 0,
+  "connector_networks": [
+    "aoe2_edge",
+    "audio_edge",
+    "car_racer_edge",
+    "car_soccer_edge",
+    "chess_edge",
+    "cmbc_edge",
+    "craft_edge",
+    "flex_edge",
+    "geogon_edge",
+    "h2d_edge",
+    "kokoro_edge",
+    "lms_edge",
+    "mathroom_edge",
+    "mazelab_edge",
+    "mindustry_edge",
+    "n64_edge",
+    "patterdraw_edge",
+    "patterspace_edge",
+    "playroom_edge",
+    "rtc2_edge",
+    "shapez_edge",
+    "shapez_preview_edge",
+    "spatterson-site_default",
+    "stardew_edge",
+    "webgpu_edge",
+    "websnes_edge"
+  ],
+  "disk_free_bytes": 7094333440,
+  "rollback_record": "/home/sam/services/car-soccer/rollback/20261104T151516Z-20261104-spectator-8c9a197033bc/record.json",
+  "rollback_limit": "Original record preserved. Strict rollback currently refuses the independently replaced WebGPU neighbor; revalidate its writer and reconcile neighbor provenance before a future Car-only rollback. No rollback was executed.",
+  "manifest_sha256": "776e5242820602a606ff4a148a42c2c2cc31f656ed6ac492dab57ffb82762997",
+  "operator": "/home/sam/services/car-soccer/release-tools/20261104-spectator-8c9a197033bc/release_operator.py",
+  "operator_sha256": "e6fd6160cfa91728648762fef4d16c353886f838f957264d85639be439312cef",
+  "cloudflare": {
+    "dns": [
+      {
+        "content": "b44f0cd5-6227-4d1a-9abb-30cccbf2540b.cfargotunnel.com",
+        "id": "cc262fa5000be2f6a925f6bc26cac106",
+        "name": "carspectator.spatterson.ca",
+        "proxied": true,
+        "ttl": 1,
+        "type": "CNAME"
+      }
+    ],
+    "formOpen": false,
+    "oldConfigHash": "fcdb265ecc4bab7325a37933c1098eacb05de76614b1f76b0aa0be80fdeca393",
+    "spectatorRoutes": [
+      {
+        "hostname": "carspectator.spatterson.ca",
+        "service": "http://car-soccer:8080"
+      }
+    ],
+    "version": 53
+  },
+  "browser": {
+    "transport": {
+      "available": true,
+      "connectionState": "connected",
+      "fastChannel": {},
+      "iceState": "connected",
+      "pair": "host -> host",
+      "pingMs": 32,
+      "snapshots": 18411
+    },
+    "gameAssets": {
+      "anonymousProtectedBundleStatus": 401,
+      "failures": [],
+      "matched": 10,
+      "total": 10
+    },
+    "spectatorAssets": {
+      "anonymousProtectedBundleStatus": 401,
+      "failures": [],
+      "matched": 10,
+      "total": 10
+    },
+    "checks": [
+      "Both public HTTPS gates and existing password login",
+      "Spectator watcher admission from real LAN host room code",
+      "One player and one watcher; no player slot consumed",
+      "Match start synchronized live snapshots",
+      "Overview, player follow, free camera movement",
+      "Hide/Show preserved the selected camera",
+      "End match returned viewer to waiting",
+      "Rematch synchronized fresh low ticks",
+      "Host departure cleared viewer and showed terminal reason",
+      "Spectator create/join/invite/leave/metrics returned 404",
+      "Spectator WebSocket upgrade rejected",
+      "Both QA grants revoked and temporary graphics preferences restored"
+    ],
+    "limits": [
+      "One browser machine using both public origins; not two physical LAN devices",
+      "Shared preview rendering and keyboard scheduling varied; no FPS or controller-to-photon latency claim",
+      "Public resize tool did not apply portrait dimensions; local real Chromium regression covered resize",
+      "Fast channel used initially then reliable fallback; no sustained public fast-channel acceptance claim",
+      "Synthetic host keyboard driving did not establish car movement in this preview; existing local browser test did"
+    ]
+  }
+}
