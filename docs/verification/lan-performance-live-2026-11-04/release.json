@@ -1,0 +1,78 @@
+{
+  "verifiedUtc": "2026-11-04T21:01:09Z",
+  "release": "20261104-spectator-0c08548aa55b",
+  "sourceCommit": "0c08548aa55b1f0436d40116067e3f96dd3f3dcc",
+  "imageId": "sha256:4ed93221ba65e03b0971cd9090d46e8a42e91cb8b7b69cbac4cc159c3c0a2a35",
+  "containerId": "15240d5944b806b58e81ea7b1548b194964e0cb4554517ee4fcc5ad0231b0a18",
+  "health": "healthy",
+  "restarts": 0,
+  "neighborCountUnchanged": 50,
+  "connectorUnchanged": true,
+  "authenticationMetadataUnchanged": true,
+  "configSecurityUnchanged": true,
+  "composeContentUnchanged": true,
+  "rollbackRecord": "/home/sam/services/car-soccer/rollback/20261104T205851Z-20261104-spectator-0c08548aa55b/record.json",
+  "rollbackBaseline": "20261104-spectator-8c9a197033bc",
+  "rollbackBaselineImage": "sha256:41b3fe3554c10515b739d76f00357fb088485a2ec153cdfc690480e4dbfddcf4",
+  "rollbackPreconditionsVerified": true,
+  "rollbackExecuted": false,
+  "manifestSha256": "da111051f616e6b049931ee6afdb494f892ae3544afaa1936559b39ef8d7be10",
+  "operator": "/home/sam/services/car-soccer/release-tools/20261104-spectator-0c08548aa55b/release_operator.py",
+  "operatorSha256": "73f867f788cc8bd4f4100e904b73305ff8ee4955810cf3989a1d3b61984c7ce2",
+  "freeDiskBytes": 6572896256,
+  "public": [
+    {
+      "origin": "https://car.spatterson.ca",
+      "release": "20261104-spectator-0c08548aa55b",
+      "sourceCommit": "0c08548aa55b1f0436d40116067e3f96dd3f3dcc",
+      "health": true,
+      "authenticatedAssetCount": 10,
+      "anonymousAssetsDenied": true,
+      "watchOnlyBoundaries": false,
+      "probeLoggedOut": true
+    },
+    {
+      "origin": "https://carspectator.spatterson.ca",
+      "release": "20261104-spectator-0c08548aa55b",
+      "sourceCommit": "0c08548aa55b1f0436d40116067e3f96dd3f3dcc",
+      "health": true,
+      "authenticatedAssetCount": 10,
+      "anonymousAssetsDenied": true,
+      "watchOnlyBoundaries": true,
+      "probeLoggedOut": true
+    }
+  ],
+  "browser": {
+    "scope": "Shared browser public login gates and unauthenticated HTTPS release/health/status reads; no authenticated live match in this release check.",
+    "sourceCommit": "0c08548aa55b1f0436d40116067e3f96dd3f3dcc",
+    "game": {
+      "origin": "https://car.spatterson.ca",
+      "loginGateVisible": true,
+      "healthStatus": 200,
+      "releaseStatus": 200,
+      "anonymousAccess": "none"
+    },
+    "spectator": {
+      "origin": "https://carspectator.spatterson.ca",
+      "heading": "Log into Car Soccer Spectator",
+      "healthStatus": 200,
+      "releaseStatus": 200,
+      "anonymousAccess": "none"
+    },
+    "newTabsClosed": true,
+    "existingCloudflareTabPreserved": true
+  },
+  "networkVerification": {
+    "localCliDnsAddress": "208.91.112.55",
+    "localCliCertificateSubject": "Fortiguard SDNS Blocked Page",
+    "sharedBrowserGameGate": "loaded normally over HTTPS",
+    "serverHttpsHealth": {
+      "https://car.spatterson.ca": 200,
+      "https://carspectator.spatterson.ca": 200
+    },
+    "tlsVerificationDisabled": false,
+    "dnsFirewallTunnelSettingsChanged": false,
+    "publicAssetCheckRoute": "SPN100 -> public HTTPS Cloudflare origins, with normal certificate verification"
+  },
+  "archiveSha256": "2dd34cd8ce889d8dbf47dff306d4b0c1a344e7a808558b6fbb12db97113cf60a"
+}

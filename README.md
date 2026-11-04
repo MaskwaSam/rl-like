@@ -68,11 +68,11 @@ Room setup requires internet access. Direct connections depend on the network.
 ## Deploying
 
 The authenticated production service and spectator hostname run on SPN100. See
-[the November 4 release receipt](docs/verification/spectator-live-2026-11-04/README.md)
+[the November 4 performance release receipt](docs/verification/lan-performance-live-2026-11-04/README.md)
 for the deployed commit/image, acceptance limits and guarded recovery instructions, and
 [server/README.md](server/README.md) for the server's access and room contract.
 
-The alternative static `.github/workflows/deploy.yml` builds `dist/` with Vite and publishes it to GitHub Pages on every push to `main` (Pages source set to *GitHub Actions*). Vite's `base: './'` keeps the site working under the `/rl-like/` path. LAN play uses browser hosting and PeerJS signalling.
+`.github/workflows/deploy.yml` builds and tests source; it does not deploy production or publish GitHub Pages. Production releases use the pinned operator and immutable packet described in the release receipt. LAN play uses browser hosting and PeerJS signalling.
 
 ## Default controls
 

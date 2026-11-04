@@ -93,10 +93,10 @@ network and origin port 8080, with no host ports or DNS/Tunnel changes. It repla
 Car Soccer runtime only; it does not operate other services. Proposed initial budget is one CPU,
 512 MiB RAM and bounded logs. These are bounds, not a measured eight-player capacity promise.
 
-The spectator release was deployed to SPN100 on November 4, 2026 using the existing production
+The LAN performance release was deployed to SPN100 on November 4, 2026 using the existing production
 password file and one Car-only container replacement. The current proof, exact image/config
 pins, retained prior release and recovery limits are in
-[the deployment receipt](../docs/verification/spectator-live-2026-11-04/README.md).
+[the deployment receipt](../docs/verification/lan-performance-live-2026-11-04/README.md).
 Future releases must refresh headroom and the live baseline, preserve authentication metadata,
 validate UID 101 access without reading the password hash, test an isolated candidate, and
 check public access and neighboring services. Rollback loses in-memory rooms and sessions.
