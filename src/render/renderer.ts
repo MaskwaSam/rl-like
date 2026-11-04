@@ -270,15 +270,16 @@ export class Renderer {
         this.cars.set(s.id, v);
       }
       const showName = s.id !== localId && s.name.length > 0;
-      if (showName && v.name !== s.name) {
-        if (v.nameplate) v.group.remove(v.nameplate);
-        v.nameplate = makeNameplate(s.name, s.team);
-        v.group.add(v.nameplate);
+      if (showName) {
+        if (!v.nameplate) {
+          v.nameplate = makeNameplate(s.name, s.team);
+          v.group.add(v.nameplate);
+        } else if (v.name !== s.name) {
+          updateNameplate(v.nameplate, s.name, s.team);
+        }
         v.name = s.name;
-      } else if (!showName && v.nameplate) {
-        v.group.remove(v.nameplate);
-        v.nameplate = null;
-        v.name = '';
+      } else {
+        if (v.nameplate) v.nameplate.visible = false;
       }
       // A demolished car is simply not drawn until it respawns.
       v.group.visible = !s.demoed;
@@ -288,7 +289,7 @@ export class Renderer {
         if (v.nameplate) v.nameplate.visible = false;
         continue;
       }
-      if (v.nameplate) v.nameplate.visible = true;
+      if (v.nameplate) v.nameplate.visible = showName;
       applyInterpolated(v.group, s.prev, s.curr, s.alpha);
       if (s.offsetPos) v.group.position.add(s.offsetPos);
       if (s.offsetQuat) v.group.quaternion.premultiply(s.offsetQuat);
@@ -317,6 +318,7 @@ export class Renderer {
     const v = this.cars.get(id);
     if (!v) return;
     this.scene.remove(v.group);
+    disposeNameplate(v.nameplate);
     this.scene.remove(v.trail.mesh);
     this.scene.remove(v.shadow.mesh);
     this.cars.delete(id);
@@ -879,6 +881,31 @@ function makeNameplate(name: string, team: Team): THREE.Sprite {
   sprite.scale.set(2.4, 0.6, 1);
   sprite.position.set(0, 1.1, 0);
   return sprite;
+}
+
+/** Redraw the per-car canvas in place so camera changes and renames allocate no new GPU resources. */
+function updateNameplate(sprite: THREE.Sprite, name: string, team: Team): void {
+  const tex = sprite.material instanceof THREE.SpriteMaterial ? sprite.material.map : null;
+  const cv = tex?.image as HTMLCanvasElement | undefined;
+  const ctx = cv?.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, cv!.width, cv!.height);
+  ctx.font = 'bold 34px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+  ctx.strokeText(name, 128, 32, 240);
+  ctx.fillStyle = team === 'blue' ? '#8fc1ff' : '#ffc08a';
+  ctx.fillText(name, 128, 32, 240);
+  tex!.needsUpdate = true;
+}
+
+/** The sprite owns these resources; its geometry comes from THREE.Sprite and is shared. */
+function disposeNameplate(sprite: THREE.Sprite | null): void {
+  if (!sprite) return;
+  sprite.material.map?.dispose();
+  sprite.material.dispose();
 }
 
 /** Static field texture: turf stripes, RL-style markings, boost pad rings. Drawn once, in the plane's metres. */
