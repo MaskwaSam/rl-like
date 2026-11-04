@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Bounded remote Car Soccer release operator. Never run this on a workstation.
-Usage: python3 operator.py prepare|activate|rollback RELEASE MANIFEST_SHA256
+Usage: python3 release_operator.py prepare|activate|rollback RELEASE MANIFEST_SHA256
 Activation and rollback additionally require --allow-session-reset.
 The digest binds manifest.json bytes, which in turn bind every package file.
 """

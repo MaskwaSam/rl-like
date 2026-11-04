@@ -28,7 +28,7 @@ APPROVED_SOURCE_FILES = {
     'docs/verification/images/2026-10-25-retry-kickoff.jpg',
     'docs/verification/images/2026-10-25-retry-movement.jpg',
     'ops/spectator-release/README.md',
-    'ops/spectator-release/operator.py',
+    'ops/spectator-release/release_operator.py',
     'ops/spectator-release/package.py',
     'ops/spectator-release/test_release.py',
     'package.json',
@@ -223,7 +223,7 @@ def main():
     (stage / 'manifest.json').write_text(json.dumps({'identity': identity, 'files': files,
         'scope': 'Exact reviewed spectator delta; dependency lock unchanged',
         'source_paths': sorted(tracked), 'approved_delta': sorted(APPROVED_SOURCE_FILES),
-        'build_outputs': output_inventories, 'operator_sha256': hashlib.sha256((ROOT / 'ops/spectator-release/operator.py').read_bytes()).hexdigest()}, indent=2) + '\n')
+        'build_outputs': output_inventories, 'operator_sha256': hashlib.sha256((ROOT / 'ops/spectator-release/release_operator.py').read_bytes()).hexdigest()}, indent=2) + '\n')
     expected = regular_inventory(stage)
     with tarfile.open(archive_path, 'x:gz') as archive:
         for name in expected:

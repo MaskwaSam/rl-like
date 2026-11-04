@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-spec = importlib.util.spec_from_file_location('release_operator', Path(__file__).with_name('operator.py'))
+spec = importlib.util.spec_from_file_location('release_operator', Path(__file__).with_name('release_operator.py'))
 op = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(op)
 REAL_RECOVERY = op.recovery_state
@@ -30,6 +30,12 @@ class ReleaseTests(unittest.TestCase):
         for name, fn in [('listxattr', listing), ('getxattr', getting), ('setxattr', setting)]:
             patcher = patch.object(op.os, name, side_effect=fn, create=True)
             patcher.start(); self.addCleanup(patcher.stop)
+
+    def test_direct_command_startup(self):
+        import subprocess, sys
+        result = subprocess.run([sys.executable, '-I', str(Path(op.__file__)), '--help'], capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+        self.assertIn(b'--expected-operator-sha256', result.stdout)
 
     def test_exact_delta(self):
         env, compose = op.config_delta(ENV, COMPOSE, RELEASE)

@@ -41,7 +41,7 @@ copy that existing public asset unchanged.
 Outputs are `20261104-spectator-<12sha>/`, the matching `.tar.gz`, and
 `20261104-spectator-<12sha>-receipt.json`. The receipt freezes the archive and
 manifest digests. The manifest also pins the operator's digest. Freeze the digest
-of `ops/spectator-release/operator.py` independently in the parent's local release
+of `ops/spectator-release/release_operator.py` independently in the parent's local release
 record; run an external copy with that exact digest, never an unverified operator
 obtained from a mutable remote packet. Transport/extraction must independently
 verify the archive digest and reject links, traversal, duplicates and extra files.
@@ -55,11 +55,11 @@ operator as the existing service owner. Each action requires the independently
 frozen digest of the operator file, in addition to the manifest digest:
 
 ```sh
-python3 /absolute/external/operator.py prepare RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256
+python3 -I /absolute/external/release_operator.py prepare RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256
 # Existing candidate images are refused unless explicitly pinned:
-python3 /absolute/external/operator.py prepare RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256 --expected-candidate-image-id sha256:FULL_IMAGE_ID
-python3 /absolute/external/operator.py activate RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256 --allow-session-reset
-python3 /absolute/external/operator.py rollback RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256 --allow-session-reset
+python3 -I /absolute/external/release_operator.py prepare RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256 --expected-candidate-image-id sha256:FULL_IMAGE_ID
+python3 -I /absolute/external/release_operator.py activate RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256 --allow-session-reset
+python3 -I /absolute/external/release_operator.py rollback RELEASE MANIFEST_SHA256 --expected-operator-sha256 OPERATOR_SHA256 --allow-session-reset
 ```
 
 Prepare checks the supplied live `.env`/Compose hashes, accepted baseline release
@@ -119,3 +119,5 @@ independent host review and acceptance. No package build or host action is run
 while these tools remain uncommitted.
 
 Recovery also permits a stopped pinned Car Soccer container, or absence confirmed by a successful Docker listing. A failed Docker command is never treated as absence. Shared neighbor and authentication metadata are checked before any recovery write, and again after recreation. Eleven local tests cover these cases, including refusing unrelated images and drift before mutation.
+
+Use the distinct release_operator.py filename and Python isolated mode (-I) for host execution; a bare operator.py filename shadows the Python standard library on direct startup. The direct --help startup is included in the 12-test local suite.
