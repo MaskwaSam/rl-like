@@ -12,7 +12,7 @@
  * over UDP, TCP and TLS/443 (the last gets through restrictive networks) and let ICE choose.
  */
 import { Peer, type DataConnection } from 'peerjs';
-import type { CtrlMsg } from './protocol';
+import { Packet, type CtrlMsg } from './protocol';
 
 /**
  * STUN servers tell each peer its public address. These are enough when at least one side's
@@ -229,6 +229,14 @@ export interface TrafficDiagnostics {
 const FAST_STALL_TIMEOUT_MS = 250;
 const FAST_WATCHDOG_INTERVAL_MS = 50;
 
+/** Only real five-byte heartbeats can share a queue with one input or snapshot. */
+function heartbeatKind(buf: ArrayBuffer): boolean | null {
+  if (buf.byteLength === 0) return null;
+  const type = new Uint8Array(buf)[0];
+  if (buf.byteLength === 5 && (type === Packet.Ping || type === Packet.Pong)) return true;
+  return type === Packet.Input || type === Packet.Snapshot ? false : null;
+}
+
 /** One connection to a remote peer: a reliable JSON channel and (once set up) a fast binary one. */
 export class Link {
   onCtrl: ((msg: CtrlMsg) => void) | null = null;
@@ -246,6 +254,25 @@ export class Link {
   private fastSampleAt: number | null = null;
   private fastStalledMs = 0;
   private fastWatchdog: ReturnType<typeof setTimeout> | null = null;
+  // A drained channel may admit one gameplay packet plus one five-byte heartbeat,
+  // in either order. No further credit is issued until the browser queue drains.
+  private heartbeatPairs = new WeakMap<RTCDataChannel, { heartbeat: boolean; bytes: number }>();
+
+  private canPairHeartbeat(ch: RTCDataChannel, buf: ArrayBuffer): boolean {
+    const first = this.heartbeatPairs.get(ch);
+    const heartbeat = heartbeatKind(buf);
+    return first !== undefined && ch.bufferedAmount > 0 && ch.bufferedAmount <= first.bytes
+      && heartbeat !== null && heartbeat !== first.heartbeat;
+  }
+
+  private sendWithHeartbeatPair(ch: RTCDataChannel, buf: ArrayBuffer, send: () => void): void {
+    const empty = ch.bufferedAmount === 0;
+    // A failed send must not leave a reusable companion allowance.
+    this.heartbeatPairs.delete(ch);
+    send();
+    const heartbeat = heartbeatKind(buf);
+    if (empty && heartbeat !== null) this.heartbeatPairs.set(ch, { heartbeat, bytes: buf.byteLength });
+  }
 
   constructor(
     readonly conn: DataConnection,
@@ -408,6 +435,7 @@ export class Link {
 
   sendCtrl(msg: CtrlMsg): void {
     if (this.closed || !this.conn.open) return;
+    if (this.conn.dataChannel) this.heartbeatPairs.delete(this.conn.dataChannel);
     try {
       this.conn.send(JSON.stringify(msg));
     } catch {
@@ -424,18 +452,21 @@ export class Link {
     if (fast && fast.readyState === 'open') {
       // Brief congestion drops stale traffic. Retirement requires independent
       // watchdog samples; elapsed time between sends alone cannot prove a stall.
-      if (fast.bufferedAmount > 0) {
+      const buffered = fast.bufferedAmount;
+      if (buffered > 0 && !this.canPairHeartbeat(fast, buf)) {
         this.watchFastProgress(fast);
         this.droppedBackpressure++;
         return;
       }
       // An observed drain also invalidates prior samples, without restarting the
-      // pending timer on every frame. The next callback samples the new queue.
-      this.fastBufferedBytes = 0;
-      this.fastSampleAt = null;
-      this.fastStalledMs = 0;
+      // pending timer on every frame. Pairing a heartbeat is not a queue drain.
+      if (buffered === 0) {
+        this.fastBufferedBytes = 0;
+        this.fastSampleAt = null;
+        this.fastStalledMs = 0;
+      }
       try {
-        fast.send(buf);
+        this.sendWithHeartbeatPair(fast, buf, () => fast.send(buf));
         this.fastSubmitted++;
         if (fast.bufferedAmount > 0) this.watchFastProgress(fast);
         return;
@@ -452,13 +483,13 @@ export class Link {
       return;
     }
     // PeerJS has a separate message queue beyond RTCDataChannel.bufferedAmount.
-    // Wait for both queues to drain; controls keep their existing reliable path.
-    if (reliable.bufferedAmount > 0 || this.reliableQueuedMessages > 0) {
+    // PeerJS messages never receive pairing credit; controls retain their path.
+    if (this.reliableQueuedMessages > 0 || (reliable.bufferedAmount > 0 && !this.canPairHeartbeat(reliable, buf))) {
       this.droppedBackpressure++;
       return;
     }
     try {
-      this.conn.send(buf);
+      this.sendWithHeartbeatPair(reliable, buf, () => this.conn.send(buf));
       this.fallbackSubmitted++;
     } catch {
       this.sendErrors++;
