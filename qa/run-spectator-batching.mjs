@@ -7,5 +7,5 @@ await build({ configFile: false, plugins: [{
   resolveId(source, importer) {
     if (source === './transport' && /src\/net\/spectator\.ts$/.test(importer ?? '')) return mock;
   },
-}], build: { ssr: 'qa/spectator-batching.ts', outDir: '.qa-build/spectator-batching', emptyOutDir: true, target: 'node24', minify: false } });
+}], build: { ssr: 'qa/spectator-batching.ts', outDir: '.qa-build/spectator-batching', emptyOutDir: true, target: 'esnext', minify: false } });
 await import('../.qa-build/spectator-batching/spectator-batching.js');

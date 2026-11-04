@@ -219,6 +219,7 @@ export class SpectatorSession {
       const tick = r.u32(); // first field of Game.serialize; do not decode obsolete bodies
       if (tick <= this.lastSnapshotTick || (this.pending && tick <= this.pending.tick)) return;
       if (!this.startingGame && !this.game) return;
+      if (!Game.isCompleteSnapshot(buf, 9)) return;
       this.pending = { buf, tick, arrivedAt: performance.now() };
       if (!this.synced && this.game) this.reconcilePending();
     }
@@ -228,7 +229,14 @@ export class SpectatorSession {
     const pending = this.pending;
     if (!pending || !this.game || this.ended) return;
     this.pending = null;
-    this.onSnapshot(Game.decode(new ByteReader(pending.buf, 9)), pending.arrivedAt);
+    let state: GameState;
+    try {
+      state = Game.decode(new ByteReader(pending.buf, 9));
+    } catch {
+      // A failed deferred decode must not abort the render/update loop.
+      return;
+    }
+    this.onSnapshot(state, pending.arrivedAt);
   }
 
   private onSnapshot(state: GameState, arrivedAt: number): void {
@@ -261,12 +269,6 @@ export class SpectatorSession {
     const oldPrevBall = { ...game.prev.ball };
     const ballWasVisible = game.ballVisible;
 
-    // A newer correction can jump over ticks we have not predicted yet. Run a bounded
-    // effects-only catch-up before replacing the bodies, otherwise batching would erase
-    // even locally predictable demos/impacts in that interval. Never replay an unbounded
-    // background-tab gap. The old visual samples above remain the smoothing baseline.
-    const effectsTo = Math.min(state.tick, oldTick + MAX_RESIM_TICKS);
-    while (game.tick < effectsTo) this.step(game, true);
     game.applyState(state);
     if (this.renderTick < state.tick) this.renderTick = state.tick;
     const resimTo = Math.min(oldTick, state.tick + MAX_RESIM_TICKS);

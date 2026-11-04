@@ -28,6 +28,26 @@ const send = (tick: number, epoch = 1) => link.onFast!(packet(tick, epoch));
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const counts = () => { decodes = 0; applies = 0; };
 try {
+  // The inexpensive layout check must track the actual serializer, including changing rosters.
+  const layout = await create(FREE_PLAY_CONFIG);
+  const countOffset = layout.snapshotBytes().byteLength - 1;
+  for (let cars = 0; cars <= 8; cars++) {
+    if (cars) layout.addCar(cars - 1, cars % 2 ? 'blue' : 'orange');
+    const bytes = layout.snapshotBytes();
+    check(Game.isCompleteSnapshot(bytes), `serializer layout rejected ${cars} cars`);
+    for (let end = 0; end < bytes.byteLength; end++) {
+      check(!Game.isCompleteSnapshot(bytes.slice(0, end)), `truncated ${cars}-car record accepted at ${end}`);
+    }
+    const wrongCount = bytes.slice(0);
+    new DataView(wrongCount).setUint8(countOffset, cars + 1);
+    check(!Game.isCompleteSnapshot(wrongCount), 'incomplete advertised roster accepted');
+    const trailing = new Uint8Array(bytes.byteLength + 1);
+    trailing.set(new Uint8Array(bytes));
+    check(!Game.isCompleteSnapshot(trailing.buffer), 'unexpected trailing record bytes accepted');
+  }
+  layout.destroy();
+  console.log('PASS complete wire layout for 0–8 cars; every truncation and invalid count rejected');
+
   // Hold creation so several packets really arrive before the async world exists.
   let release!: (g: Game) => void;
   Game.create = () => new Promise(resolve => { release = resolve; });
@@ -76,8 +96,8 @@ try {
   viewer.update(0);
   check(viewer.carRenderStates()[0].offsetPos!.length() > 0, 'small correction lost smoothing');
 
-  // Effects are not serialized. Probe both skipped-tick catch-up and resimulation with
-  // deterministic local collision signals; frame clearing must precede reconciliation.
+  // A newer authority state must replace superseded physics without speculating collisions.
+  // Existing forward prediction and correction replay still publish deduplicated effects.
   const game = viewer.game!;
   const step = game.step.bind(game);
   let steps = 0, victim = 0;
@@ -91,8 +111,11 @@ try {
   counts();
   for (let t = base + 1; t <= base + 6; t++) send(t);
   viewer.update(0);
-  check(decodes === 1 && applies === 1 && steps === 6, 'bounded catch-up did not cover skipped predictable effects');
-  check(viewer.events.demos.length === 1 && viewer.events.ballHitSpeed === 12 && viewer.events.ballBounceSpeed === 7, 'batched prediction effects were lost or duplicated');
+  check(decodes === 1 && applies === 1 && steps === 0, 'batching ran discarded physics before applying newer authority');
+  check(viewer.events.demos.length === 0 && viewer.events.ballHitSpeed === 0, 'superseded inputs invented collision effects');
+  now += 20;
+  viewer.update(1 / 60);
+  check(viewer.events.demos.length === 1 && viewer.events.ballHitSpeed === 12 && viewer.events.ballBounceSpeed === 7, 'forward prediction effects were lost or duplicated');
   viewer.update(0);
   check(viewer.events.demos.length === 0 && viewer.events.ballHitSpeed === 0, 'effects replayed on the next frame');
   now += 100;
@@ -105,9 +128,28 @@ try {
   steps = 0;
   send(game.tick + 1000);
   viewer.update(0);
-  check(steps <= 30, 'effects catch-up was unbounded');
+  check(steps === 0, 'newer authority ran discarded catch-up physics');
   game.step = step;
-  console.log('PASS prediction, correction smoothing, bounded demo/impact effects and frame clearing');
+  console.log('PASS prediction, smoothing and replay effects without discarded physics or invented catch-up effects');
+
+  const validTick = game.tick + 1;
+  counts(); send(validTick);
+  const bad = packet(validTick + 1000);
+  link.onFast!(bad.slice(0, 13));
+  link.onFast!(bad.slice(0, -1));
+  new DataView(bad).setUint8(9 + countOffset, 2); // only one serialized car follows
+  link.onFast!(bad);
+  viewer.update(0);
+  check(decodes === 1 && applies === 1 && game.tick === validTick, 'malformed newer packet evicted a usable correction');
+  send(validTick + 1);
+  const countedDecode = Game.decode;
+  Game.decode = () => { throw new RangeError('injected decode failure'); };
+  viewer.update(0);
+  Game.decode = countedDecode;
+  check(game.tick === validTick, 'failed decode changed authority state');
+  counts(); send(validTick + 1); viewer.update(0);
+  check(decodes === 1 && applies === 1 && game.tick === validTick + 1, 'decode failure poisoned later valid state');
+  console.log('PASS malformed newest packets preserve pending state; deferred decode failure is contained');
 
   source.phase = 'goal'; source.goalPause = 2;
   source.score.blue = 1; source.lastGoal = 'blue'; source.lastGoalScorer = 0; source.lastGoalSpeed = 42;

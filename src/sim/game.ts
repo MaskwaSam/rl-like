@@ -577,6 +577,17 @@ export class Game {
     }
   }
 
+  /** Check the fixed wire layout without allocating decoded bodies. Keep in sync with serialize(). */
+  static isCompleteSnapshot(buf: ArrayBuffer, byteOffset = 0): boolean {
+    // Metadata through RNG, spawn order/cursors, ball, pad cooldowns, then car count.
+    const countOffset = 35 + KICKOFF_SPAWNS.length + 3 + 53
+      + BOOST_PADS.bigLocations.length + BOOST_PADS.smallLocations.length;
+    const headerBytes = countOffset + 1;
+    if (byteOffset < 0 || buf.byteLength - byteOffset < headerBytes) return false;
+    const count = new DataView(buf).getUint8(byteOffset + countOffset);
+    return buf.byteLength - byteOffset === headerBytes + count * (2 + Car.SERIALIZED_BYTES);
+  }
+
   /** Decode a serialize() record into a plain object. Mirrors serialize() field for field. */
   static decode(r: ByteReader): GameState {
     const tick = r.u32();

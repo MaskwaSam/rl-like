@@ -15,6 +15,8 @@ const GAME = 'http://127.0.0.1:4100', SPEC = 'http://localhost:4100';
 const server = spawn(process.execPath, ['.server-build/index.js'], { cwd: root, env: { ...process.env, CAR_ORIGIN: GAME, CAR_SPECTATOR_ORIGIN: SPEC, CAR_PASSWORD_HASH: hash, PORT: '4100' }, stdio: ['ignore', 'ignore', 'pipe'] });
 server.stderr.on('data', () => {});
 const report = { scope: 'Built app on localhost; real PeerJS signalling and WebRTC between a host, desktop viewer and touch-enabled viewer on one Mac; software-rendered WebGL. Not a physical-LAN, multi-device or rendered-performance claim.', checks: [], measurements: {} };
+const drawScreenshots = process.env.QA_SCREENSHOTS !== '0';
+report.screenshotsEnabled = drawScreenshots;
 const check = (ok, d) => { if (!ok) throw Error(d); report.checks.push(d); console.log('PASS ' + d); };
 const lowQuality = () => localStorage.setItem('rl-like-settings', JSON.stringify({ graphics: { quality: 0 }, audio: { volume: 0, muted: true } }));
 let browser;
@@ -28,7 +30,7 @@ const pauseRender = () => {
     r.renderOverview = (dt, o) => { if (window.__qaDraw) overview(dt, o); };
   }, 5);
 };
-const shot = async (page, name) => { await page.evaluate(() => { window.__qaDraw = true; }); await page.waitForTimeout(700); await page.screenshot({ path: `${evidence}/${name}` }); await page.evaluate(() => { window.__qaDraw = false; }); };
+const shot = async (page, name) => { if (!drawScreenshots) return; await page.evaluate(() => { window.__qaDraw = true; }); await page.waitForTimeout(700); await page.screenshot({ path: `${evidence}/${name}` }); await page.evaluate(() => { window.__qaDraw = false; }); };
 try {
   for (let i = 0; i < 80; i++) { try { if ((await fetch(GAME + '/healthz')).ok) break; } catch {} await new Promise(r => setTimeout(r, 100)); }
   browser = await chromium.launch({ headless: true, args: ['--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--use-gl=angle', '--use-angle=swiftshader'] });
@@ -63,6 +65,23 @@ try {
   await host.evaluate(() => window.__menu.onStartMatch());
   await spec.waitForFunction(() => window.__spectator?.ready, null, { timeout: 20000 });
   check(true, 'spectator synchronized when the host started');
+  await spec.waitForFunction(() => window.__spectator.link.fastOpen && window.__spectator.link.trafficDiagnostics.fastBufferedBytes === 0, null, { timeout: 15000 });
+  // Real RTCDataChannel buffers cannot expose draining inside one JavaScript task. A long
+  // task between sends must not be mistaken for evidence of persistent network congestion.
+  const schedulingProbe = await spec.evaluate(() => {
+    const link = window.__spectator.link;
+    const before = link.trafficDiagnostics;
+    const ping = new ArrayBuffer(5), view = new DataView(ping);
+    view.setUint8(0, 3); // Packet.Ping
+    view.setUint32(1, performance.now() >>> 0, true);
+    link.sendFast(ping);
+    const start = performance.now();
+    while (performance.now() - start < 300) { /* bounded scheduling stall */ }
+    link.sendFast(ping);
+    return { before, after: link.trafficDiagnostics };
+  });
+  report.measurements.schedulingProbe = schedulingProbe;
+  check(schedulingProbe.after.fastOpen && schedulingProbe.after.fastStallRecoveries === schedulingProbe.before.fastStallRecoveries, '300 ms same-task pause does not retire a healthy fast channel');
   await host.waitForFunction(() => window.__game?.phase === 'play', null, { timeout: 15000 });
   await host.locator('canvas').click({ position: { x: 480, y: 300 } }).catch(() => {});
   await host.keyboard.down('KeyW'); await host.keyboard.down('KeyD');
@@ -81,6 +100,11 @@ try {
   const lags = samples.map(x => x.lagTicks).sort((a, b) => a - b);
   report.measurements.lagTicksMedian = lags[10]; report.measurements.lagTicksMax = lags.at(-1);
   report.measurements.pingMs = samples.at(-1).ping; report.measurements.spectatorStats = samples.at(-1).stats;
+  report.measurements.traffic = {
+    host: await host.evaluate(() => [...window.__session.spectators].map(link => link.trafficDiagnostics)),
+    spectator: await spec.evaluate(() => window.__spectator.link.trafficDiagnostics),
+  };
+  check(report.measurements.traffic.spectator.fastOpen && report.measurements.traffic.host.every(t => t.fastOpen), 'host and spectator retain fast channels after the scheduling pause');
   console.log('Measurements', JSON.stringify(report.measurements));
   check(Math.abs(lags[10]) < 6, `spectator picture within 6 ticks (50 ms) of the host on median (${lags[10].toFixed(1)} ticks)`);
   const carMoved = await spec.evaluate(() => { const c = window.__spectator.game.cars.get(0).body.translation(); return Math.hypot(c.x, c.z); });
@@ -192,6 +216,9 @@ try {
   await host.evaluate(() => window.__menu.onStartMatch());
   await spec.waitForFunction(() => window.__spectator?.ready && window.__spectator.game.phase === 'countdown' && document.getElementById('banner').style.display === 'block', null, { timeout: 15000 });
   check(true, 'rematch displays a fresh countdown banner');
+  const finalTraffic = await spec.evaluate(() => window.__spectator.link.trafficDiagnostics);
+  report.measurements.finalSpectatorTraffic = finalTraffic;
+  check(finalTraffic.fastOpen && finalTraffic.fastStallRecoveries === 0, 'fast channel survives camera changes and rematch without false retirement');
   await host.evaluate(() => window.__session.leave());
   await spec.waitForFunction(() => !window.__spectator && !document.getElementById('specJoin').hidden, null, { timeout: 15000 });
   check((await spec.locator('#specStatus').innerText()).length > 0, 'host departure returns the spectator to the code screen with a reason');

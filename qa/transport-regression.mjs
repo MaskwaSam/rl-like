@@ -219,6 +219,21 @@ try {
   assert.equal(timers.size, 0, 'prior scenarios release watchdog timers on close');
   {
     now = 0;
+    const { link, fast } = fastLink();
+    const input = new ArrayBuffer(24), ping = new ArrayBuffer(5);
+    new Uint8Array(input)[0] = 1; // Packet.Input
+    new Uint8Array(ping)[0] = 3; // Packet.Ping
+    link.sendFast(input);
+    for (let i = 0; i < 5; i++) turn();
+    link.sendFast(ping);
+    assert.deepEqual(fast.sent, [input, ping], 'heartbeat receives its single companion allowance');
+    turn();
+    assert.equal(link.fastOpen, false, 'heartbeat allowance does not reset confirmed congestion');
+    assert.equal(link.trafficDiagnostics.fastStallRecoveries, 1);
+    link.close();
+  }
+  {
+    now = 0;
     const { link, fast, conn } = fastLink();
     const scheduledBefore = scheduledTimers;
     link.sendFast(packet);
@@ -391,7 +406,7 @@ try {
     assert.equal(closed, 1, 'close failures do not suppress or duplicate notification');
   }
   assert.equal(timers.size, 0, 'suite leaves no watchdog timers');
-  console.log('Transport regression: 22 scenarios passed (queue bounds, stall recovery, fallback, terminal lifecycle, late dispatch, paired closure, close failures).');
+  console.log('Transport regression: 23 scenarios passed (queue bounds, heartbeat interaction, stall recovery, fallback, terminal lifecycle, late dispatch, paired closure, close failures).');
 } finally {
   globalThis.setTimeout = originalSetTimeout;
   globalThis.clearTimeout = originalClearTimeout;

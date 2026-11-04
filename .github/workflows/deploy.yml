@@ -34,8 +34,8 @@ jobs:
         run: npm run test:retry
       - name: Run session regression
         run: npm run test:sessions
-      - name: Run transport regression
-        run: npm run test:transport
+      - name: Run LAN performance regressions
+        run: npm run test:lan
       - name: Run host startup failure regression
         run: npm run test:host-startup
       - name: Run spectator admission regression

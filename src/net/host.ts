@@ -371,6 +371,8 @@ export class HostSession implements Session {
     }
     if (steps === 12) this.accumulator = 0;
     this.alpha = Math.min(1, this.accumulator / TICK_DT);
+    // Viewers get the newest tick once per host update, including odd ticks. They have no
+    // inputs to acknowledge, so their epoch header stays separate from each player's ack.
     const spectatorSnapshotDue = steps > 0 && this.spectators.size > 0;
     // Serialize only after catch-up so every recipient gets the newest simulated tick. Reuse
     // the state bytes, while encoding each packet separately for its ack/epoch header.
@@ -383,8 +385,6 @@ export class HostSession implements Session {
         for (const link of this.spectators) link.sendFast(packet);
       }
     }
-    // Viewers get the newest tick once per host frame, not only on even ticks: nothing they
-    // receive is older than the host's own screen. They have no inputs to acknowledge.
   }
 
   private broadcastSnapshot(state: ArrayBuffer, now: number): void {
