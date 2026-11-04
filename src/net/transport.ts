@@ -250,6 +250,7 @@ export class Link {
     private readonly hostSide: boolean,
   ) {
     conn.on('data', (data: unknown) => {
+      if (this.closed) return;
       if (typeof data === 'string') {
         let msg: CtrlMsg;
         try {
@@ -278,6 +279,7 @@ export class Link {
 
   /** Call once the reliable channel is open. Host side: listen for the fast channel and invite it. */
   start(): void {
+    if (this.closed) return;
     if (this.hostSide) {
       const pc = this.conn.peerConnection;
       if (pc) {
@@ -317,7 +319,7 @@ export class Link {
 
   private createFastChannel(): void {
     const pc = this.conn.peerConnection;
-    if (!pc || this.fast) return;
+    if (this.closed || !pc || this.fast) return;
     try {
       const ch = pc.createDataChannel('fast', { ordered: false, maxRetransmits: 0 });
       this.adoptFast(ch);
@@ -332,10 +334,18 @@ export class Link {
   }
 
   private adoptFast(ch: RTCDataChannel): void {
+    if (this.closed) {
+      try {
+        ch.close();
+      } catch {
+        /* a late channel must never revive a terminal link */
+      }
+      return;
+    }
     this.resetFastProgress();
     ch.binaryType = 'arraybuffer';
     ch.onmessage = (e) => {
-      if (e.data instanceof ArrayBuffer) this.onFast?.(e.data);
+      if (!this.closed && this.fast === ch && e.data instanceof ArrayBuffer) this.onFast?.(e.data);
     };
     ch.onclose = () => {
       if (this.fast === ch) {
@@ -424,9 +434,13 @@ export class Link {
 
   close(): void {
     if (this.closed) return;
+    // Fence dispatch and reentrant transport callbacks before closing either channel.
     this.closed = true;
+    const fast = this.fast;
+    this.fast = null;
+    this.resetFastProgress();
     try {
-      this.fast?.close();
+      fast?.close();
     } catch {
       /* ignore */
     }
@@ -439,9 +453,7 @@ export class Link {
   }
 
   private handleClose(): void {
-    if (this.closed) return;
-    this.closed = true;
-    this.onClose?.();
+    this.close();
   }
 }
 

@@ -30,18 +30,24 @@ try {
   const packet = new ArrayBuffer(32);
   function channel() {
     return {
-      label: 'fast', readyState: 'open', bufferedAmount: 0, sent: [],
+      label: 'fast', readyState: 'open', bufferedAmount: 0, sent: [], closeCalls: 0,
       send(data) { this.sent.push(data); this.bufferedAmount += data.byteLength; },
-      close() { this.readyState = 'closed'; this.onclose?.(); },
+      close() { this.closeCalls++; this.readyState = 'closed'; this.onclose?.(); },
     };
   }
   function connection() {
     return {
-      open: true, bufferSize: 0, dataChannel: channel(), sent: [], events: {},
-      peerConnection: { createDataChannel() { return channel(); } },
+      open: true, bufferSize: 0, dataChannel: channel(), sent: [], events: {}, closeCalls: 0,
+      peerConnection: { createdChannels: [], createDataChannel() {
+        const ch = channel(); this.createdChannels.push(ch); return ch;
+      } },
       on(name, fn) { this.events[name] = fn; },
       send(data) { this.sent.push(data); this.dataChannel.bufferedAmount += typeof data === 'string' ? data.length : data.byteLength; },
-      close() { this.open = false; this.events.close?.(); },
+      close() {
+        this.closeCalls++; this.open = false; this.dataChannel.close(); this.events.close?.();
+        // Model the remote reliable channel's close event, including synchronous reentrancy.
+        if (this.remote?.open) this.remote.events.close?.();
+      },
     };
   }
   function fastLink() {
@@ -177,7 +183,91 @@ try {
     const fresh = new ArrayBuffer(36); link.sendFast(fresh);
     assert.deepEqual(conn.sent, [fresh], 'queue drain admits only newest packet');
   }
-  console.log('Transport regression: 8 scenarios passed (queue bounds, timed stall recovery, progress reset, controls, send races, handshake/fallback).');
+  for (const terminal of ['disconnected', 'failed', 'closed', 'error', 'close', 'explicit']) {
+    const { conn, link, fast } = fastLink();
+    let closed = 0, controls = 0, packets = 0;
+    link.onClose = () => {
+      closed++;
+      assert.equal(conn.open, false, 'reliable transport closes before notification');
+      assert.equal(fast.readyState, 'closed', 'fast transport closes before notification');
+      link.close(); // Application cleanup can reenter as well as transport callbacks.
+    };
+    link.onCtrl = () => controls++;
+    link.onFast = () => packets++;
+    conn.events.data(JSON.stringify({ t: 'fastready' }));
+    conn.events.data(packet);
+    conn.events.data(new Uint8Array(packet));
+    fast.onmessage({ data: packet });
+    assert.equal(controls, 1);
+    assert.equal(packets, 3, 'all receive paths dispatch while live');
+
+    if (terminal === 'explicit') link.close();
+    else if (terminal === 'error' || terminal === 'close') conn.events[terminal]();
+    else conn.events.iceStateChanged(terminal);
+    assert.equal(link.closed, true, `${terminal} is terminal`);
+    assert.equal(conn.closeCalls, 1, `${terminal} closes physical reliable transport once`);
+    assert.equal(conn.dataChannel.readyState, 'closed');
+    assert.equal(fast.closeCalls, 1, `${terminal} closes physical fast transport once`);
+
+    conn.events.iceStateChanged('connected');
+    link.start();
+    link.sendCtrl({ t: 'fastready' });
+    link.sendFast(packet);
+    conn.events.data(JSON.stringify({ t: 'fastready' }));
+    conn.events.data(packet);
+    conn.events.data(new Uint8Array(packet));
+    fast.onmessage({ data: packet });
+    const late = channel();
+    conn.peerConnection.ondatachannel({ channel: late });
+    assert.equal(late.readyState, 'closed', 'late fast channel is closed instead of adopted');
+    assert.equal(link.fastOpen, false, 'connected ICE cannot revive abandoned link');
+    assert.equal(conn.sent.length, 0, 'closed link submits no control or gameplay traffic');
+    assert.equal(fast.sent.length, 0);
+    assert.equal(controls, 1, 'late control is ignored');
+    assert.equal(packets, 3, 'late reliable, typed-array and fast payloads are ignored');
+    for (let i = 0; i < 3; i++) {
+      conn.events.close(); conn.events.error(); conn.events.iceStateChanged('failed');
+      fast.onclose(); fast.onerror(); link.close();
+    }
+    assert.equal(closed, 1, `${terminal} notifies exactly once despite repeated/reentrant callbacks`);
+    assert.equal(conn.closeCalls, 1);
+    assert.equal(fast.closeCalls, 1);
+  }
+  {
+    const conn = connection(), link = new Link(conn, false);
+    link.close();
+    link.start();
+    conn.events.data(JSON.stringify({ t: 'fastready' }));
+    assert.equal(conn.peerConnection.createdChannels.length, 0, 'late invitation cannot create client fast channel');
+  }
+  {
+    const a = fastLink(), b = fastLink();
+    a.conn.remote = b.conn; b.conn.remote = a.conn;
+    let aClosed = 0, bClosed = 0;
+    a.link.onClose = () => aClosed++;
+    b.link.onClose = () => bClosed++;
+    a.conn.events.iceStateChanged('disconnected');
+    assert.equal(aClosed, 1);
+    assert.equal(bClosed, 1, 'physical closure propagates to remote Link');
+    for (const side of [a, b]) {
+      assert.equal(side.link.closed, true);
+      assert.equal(side.conn.closeCalls, 1, 'paired close callbacks do not recurse');
+      assert.equal(side.fast.closeCalls, 1);
+    }
+  }
+  {
+    const { conn, link, fast } = fastLink();
+    let closed = 0;
+    fast.close = () => { fast.closeCalls++; fast.onclose(); throw new Error('fast close failed'); };
+    conn.close = () => { conn.closeCalls++; conn.events.error(); throw new Error('reliable close failed'); };
+    link.onClose = () => closed++;
+    conn.events.iceStateChanged('failed');
+    link.close();
+    assert.equal(conn.closeCalls, 1, 'fast close failure does not prevent reliable close attempt');
+    assert.equal(fast.closeCalls, 1);
+    assert.equal(closed, 1, 'close failures do not suppress or duplicate notification');
+  }
+  console.log('Transport regression: 17 scenarios passed (queue bounds, stall recovery, fallback, terminal lifecycle, late dispatch, paired closure, close failures).');
 } finally {
   if (originalNow) Object.defineProperty(performance, 'now', originalNow);
   else delete performance.now;
