@@ -201,17 +201,30 @@ def neighbors():
     return result
 
 
-def live(expected_id=None):
+def live(expected_id=None, require_running=True):
     c = inspect('container', 'car-soccer')
     s = snapshot(c)
     if expected_id:
         require(s['id'] == expected_id, 'Live container changed since preparation')
-    require(s['running'], 'Live service is not running')
+    require(not require_running or s['running'], 'Live service is not running')
     require(s['user'] == '101:101' and s['readonly'] and s['memory'] == 512 * 1024**2 and s['nano_cpus'] == 10**9 and s['pids_limit'] == 64, 'Unexpected live resource/security settings')
     require('ALL' in (s['cap_drop'] or []) and any(x.startswith('no-new-privileges') for x in s['security_opt'] or []), 'Unexpected live security options')
     require(not s['ports'] and set(s['networks']) == {'car_soccer_edge'}, 'Unexpected live ports/networks')
     expected = [{'type': 'bind', 'source': str(ROOT / 'secrets/game-password-hash'), 'destination': '/run/secrets/game-password-hash', 'rw': False}]
     require(s['mounts'] == expected, 'Unexpected live authentication mount')
+    return c
+
+
+
+def recovery_state(record):
+    # A successful Docker list distinguishes confirmed absence from daemon/inspect failure.
+    ids = run(['docker', 'ps', '-aq', '--no-trunc', '--filter', 'name=^/car-soccer$']).decode().split()
+    require(len(ids) <= 1, 'Ambiguous Car Soccer recovery identity')
+    if not ids:
+        return None
+    c = live(require_running=False)  # retain all security/mount/network guards
+    require(c['Id'] == ids[0], 'Recovery container changed during inspection')
+    require(c['Image'] in {record['image_id'], record['baseline_image_id']}, 'Live image changed; rollback refused')
     return c
 
 
@@ -454,6 +467,9 @@ def restore(record):
     require(inspect('image', record['baseline_tag'])['Id'] == record['baseline_image_id'], 'Rollback image tag changed')
     require({k: record[k] for k in EXPECTED_CONFIG} == EXPECTED_CONFIG, 'Recorded baseline config differs from verified hashes')
     validate_restore_configs(record)
+    require(neighbors() == record['neighbors'], 'Neighbor state changed; rollback refused before mutation')
+    require(secret_metadata() == record['auth_metadata'], 'Authentication state changed; rollback refused before mutation')
+    recovery_state(record)
     for name in ['.env', 'compose.yaml']:
         p = backup / name
         atomic_config(ROOT / name, p.read_bytes(), p)
@@ -576,8 +592,6 @@ def main():
             r = json.loads(record_path.read_bytes())
             require(r['operator_sha256'] == a.expected_operator_sha256, 'Rollback operator changed')
             require(r['release'] == a.release and r['manifest_sha256'] == a.manifest_sha256, 'Rollback identity mismatch')
-            c = live()
-            require(c['Image'] in {r['image_id'], r['baseline_image_id']}, 'Live image changed; rollback refused')
             restore(r)
             print('Baseline restored; sessions reset.')
 

@@ -9,6 +9,7 @@ from unittest.mock import patch
 spec = importlib.util.spec_from_file_location('release_operator', Path(__file__).with_name('operator.py'))
 op = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(op)
+REAL_RECOVERY = op.recovery_state
 RELEASE = '20261104-spectator-0123456789ab'
 ENV = ('UNCHANGED=1\nCAR_RELEASE=' + op.BASELINE_RELEASE + '\nTAIL=yes\n').encode()
 COMPOSE = b'services:\n  car-soccer:\n    environment:\n      CAR_ORIGIN: https://car.spatterson.ca\n      OTHER: unchanged\n'
@@ -20,6 +21,8 @@ class ReleaseTests(unittest.TestCase):
     def setUp(self):
         # This macOS Python lacks Linux xattrs. Model them explicitly in tests;
         # production operator still requires Linux xattr support and fails closed.
+        recovery = patch.object(op, 'recovery_state', return_value=None)
+        recovery.start(); self.addCleanup(recovery.stop)
         self.attrs = {}
         def listing(path): return list(self.attrs.get(str(path), {}))
         def getting(path, key): return self.attrs[str(path)][key]
@@ -54,7 +57,7 @@ class ReleaseTests(unittest.TestCase):
         for name, data in [('.env', ENV), ('compose.yaml', COMPOSE)]:
             (backup / name).write_bytes(data)
             (backup / name).chmod(0o640)
-        record = {'release': RELEASE, 'rollback_directory': backup_name,
+        record = {'release': RELEASE, 'rollback_directory': backup_name, 'image_id': 'candidate',
                   'env_sha256': digest(ENV), 'compose_sha256': digest(COMPOSE),
                   'activated_env_sha256': digest(new_env), 'activated_compose_sha256': digest(new_compose),
                   'baseline_release': op.BASELINE_RELEASE, 'baseline_tag': op.BASELINE_TAG,
@@ -166,6 +169,46 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual((root / 'compose.yaml').read_bytes(), COMPOSE)
                     self.assertEqual(writes[-2:], ['.env', 'compose.yaml'])
                     self.assertEqual(len(list((root / 'rollback').glob('*-' + RELEASE))), 1)
+
+    def test_rollback_drift_refuses_before_any_mutation(self):
+        for drift in ('neighbors', 'auth'):
+            with self.subTest(drift=drift), tempfile.TemporaryDirectory() as tmp, patch.object(op, 'ROOT', Path(tmp)):
+                root = Path(tmp)
+                record, new_env, new_compose = self.fixture(root)
+                (root / '.env').write_bytes(new_env)
+                (root / 'compose.yaml').write_bytes(new_compose)
+                with patch.object(op, 'inspect', return_value={'Id': op.BASELINE_IMAGE_ID}), patch.object(op, 'EXPECTED_CONFIG', {k: record[k] for k in ('env_sha256','compose_sha256')}), patch.object(op, 'neighbors', return_value={} if drift == 'neighbors' else record['neighbors']), patch.object(op, 'secret_metadata', return_value={} if drift == 'auth' else record['auth_metadata']), patch.object(op, 'atomic_config') as write, patch.object(op, 'compose_up') as recreate:
+                    with self.assertRaisesRegex(RuntimeError, 'before mutation'):
+                        op.restore(record)
+                    write.assert_not_called(); recreate.assert_not_called()
+                self.assertEqual((root / '.env').read_bytes(), new_env)
+                self.assertEqual((root / 'compose.yaml').read_bytes(), new_compose)
+
+    def test_restore_recovers_stopped_or_absent_container(self):
+        for present in (False, True):
+            with self.subTest(present=present), tempfile.TemporaryDirectory() as tmp, patch.object(op, 'ROOT', Path(tmp)):
+                root = Path(tmp)
+                record, new_env, new_compose = self.fixture(root)
+                (root / '.env').write_bytes(new_env)
+                (root / 'compose.yaml').write_bytes(new_compose)
+                def fake_live(expected_id=None, require_running=True):
+                    return {'Id': 'stopped-id', 'Image': record['baseline_image_id'] if require_running else record['image_id']}
+                with patch.object(op, 'recovery_state', REAL_RECOVERY), patch.object(op, 'run', return_value=b'stopped-id\n' if present else b''), patch.object(op, 'live', side_effect=fake_live) as live, patch.object(op, 'inspect', return_value={'Id': op.BASELINE_IMAGE_ID}), patch.object(op, 'neighbors', return_value=record['neighbors']), patch.object(op, 'secret_metadata', return_value=record['auth_metadata']), patch.object(op, 'EXPECTED_CONFIG', {k: record[k] for k in ('env_sha256','compose_sha256')}), patch.object(op, 'compose_up') as recreate:
+                    op.restore(record)
+                    recreate.assert_called_once()
+                    if present:
+                        self.assertEqual(live.call_args_list[0].kwargs, {'require_running': False})
+                self.assertEqual((root / '.env').read_bytes(), ENV)
+                self.assertEqual((root / 'compose.yaml').read_bytes(), COMPOSE)
+
+    def test_recovery_refuses_unknown_image_or_docker_failure(self):
+        record = {'image_id': 'candidate', 'baseline_image_id': 'baseline'}
+        with patch.object(op, 'run', return_value=b'foreign-id\n'), patch.object(op, 'live', return_value={'Id': 'foreign-id', 'Image': 'foreign'}):
+            with self.assertRaisesRegex(RuntimeError, 'Live image changed'):
+                REAL_RECOVERY(record)
+        with patch.object(op, 'run', side_effect=RuntimeError('Docker unavailable')):
+            with self.assertRaisesRegex(RuntimeError, 'Docker unavailable'):
+                REAL_RECOVERY(record)
 
     def test_symlink_and_hardlink_config_rejected(self):
         import os

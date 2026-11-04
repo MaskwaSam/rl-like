@@ -117,3 +117,5 @@ harness; real Linux ACL behavior, Docker, image layers, production access, resou
 headroom, and browser/device/multiplayer behavior still require the parent's
 independent host review and acceptance. No package build or host action is run
 while these tools remain uncommitted.
+
+Recovery also permits a stopped pinned Car Soccer container, or absence confirmed by a successful Docker listing. A failed Docker command is never treated as absence. Shared neighbor and authentication metadata are checked before any recovery write, and again after recreation. Eleven local tests cover these cases, including refusing unrelated images and drift before mutation.
