@@ -1,0 +1,48 @@
+/* Spectator overlay. Reuses the game's #hud for score, clock, banner, ping and the followed car's gauges. */
+body.spectator-mode #controller, body.spectator-mode #playHints, body.spectator-mode #matchRetry { display: none !important; }
+body.spectator-mode #bottomright.hidden-gauges > #speed, body.spectator-mode #bottomright.hidden-gauges > #boostGauge { visibility: hidden; }
+body.spectator-mode #bottomleft { bottom: 96px; }
+body.spectator-mode.ui-hidden .spectator-bar, body.spectator-mode.ui-hidden #topright, body.spectator-mode.ui-hidden #bottomleft { display: none; }
+
+.spectator-screen { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: 18px; box-sizing: border-box;
+  background: radial-gradient(1000px 520px at 15% -10%, rgba(74,163,255,.2), transparent 60%), radial-gradient(800px 460px at 100% 110%, rgba(255,154,60,.16), transparent 60%), rgba(5,8,15,.72); }
+.spectator-screen[hidden] { display: none; }
+.spectator-screen .menu-panel { width: min(520px, 100%); min-width: 0; box-sizing: border-box; }
+.spectator-screen form { display: flex; gap: 10px; flex-wrap: wrap; }
+.spectator-screen form .menu-input { flex: 1 1 200px; }
+.spectator-screen form .menu-button { flex: 0 0 auto; text-align: center; }
+.spectator-roster { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.spectator-roster .lobby-team { min-height: 70px; }
+
+.spectator-bar { position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100vw - 340px); pointer-events: none; }
+.spectator-bar[hidden] { display: none; }
+.spectator-modes, .spectator-players { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; pointer-events: auto; }
+.spectator-bar button { font: inherit; font-size: 13px; font-weight: 600; min-height: 34px; padding: 6px 11px; border-radius: 8px; color: #e8eef5; cursor: pointer;
+  background: rgba(8,20,31,.82); border: 1px solid rgba(185,227,255,.28); text-shadow: none; touch-action: manipulation; }
+.spectator-bar button:hover { border-color: rgba(185,227,255,.6); }
+.spectator-bar button.active { border-color: #7cfc9a; color: #7cfc9a; background: rgba(12,40,26,.86); }
+.spectator-bar button kbd { font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .7; margin-left: 5px; }
+.spectator-bar button:focus-visible { outline: 2px solid #ffd166; outline-offset: 2px; }
+.spectator-players button { display: flex; align-items: center; gap: 7px; border-left-width: 4px; }
+.spectator-players button.blue { border-left-color: #4aa3ff; }
+.spectator-players button.orange { border-left-color: #ff9a3c; }
+.spectator-players .boost { font-variant-numeric: tabular-nums; font-size: 11px; opacity: .75; min-width: 22px; text-align: right; }
+.spectator-follow { position: fixed; top: 82px; left: 50%; transform: translateX(-50%); z-index: 5; padding: 5px 14px; border-radius: 6px; font-size: 16px; font-weight: 700; letter-spacing: .5px;
+  background: rgba(0,0,0,.42); border: 1px solid rgba(255,255,255,.2); pointer-events: none; text-shadow: 0 1px 2px #000; }
+.spectator-follow[hidden] { display: none; }
+.spectator-follow.blue { color: #8cc6ff; border-color: rgba(74,163,255,.6); }
+.spectator-follow.orange { color: #ffbe82; border-color: rgba(255,154,60,.6); }
+.spectator-live { color: #7cfc9a; font-weight: 700; letter-spacing: 1px; }
+.spectator-live.stale { color: #ffd166; }
+.spectator-help { position: fixed; top: 44px; right: 16px; z-index: 5; font-size: 12px; line-height: 1.6; padding: 10px 12px; border-radius: 6px; background: rgba(8,20,31,.86); border: 1px solid rgba(185,227,255,.25); max-width: 260px; }
+.spectator-help[hidden] { display: none; }
+.spectator-help kbd { display: inline-block; min-width: 14px; padding: 0 5px; border-radius: 4px; border: 1px solid rgba(255,255,255,.25); background: rgba(255,255,255,.07); font-size: 10.5px; text-align: center; }
+
+@media (max-width: 720px) {
+  .spectator-bar { max-width: calc(100vw - 20px); }
+  body.spectator-mode #bottomright { display: none; }
+  body.spectator-mode #bottomleft { bottom: auto; top: 82px; left: 10px; }
+  body.spectator-mode #topright { top: 86px; right: 10px; }
+  .spectator-follow { top: 112px; }
+  .spectator-bar button kbd { display: none; }
+}

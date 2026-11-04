@@ -742,6 +742,11 @@ export class Menu {
     const status = el('div', 'lobby-status');
     status.textContent = `${s.players.length}/${totalCapacity} players · ${server ? `${teamCapacity}v${teamCapacity}` : 'Up to 4v4'} · ` + (s.inMatch ? 'Match in progress' : s.isHost ? 'Share the code. Start when everyone is in.' : 'Waiting for the host to start.');
     this.lobbyBody.appendChild(status);
+    if (!server) {
+      const watching = el('div', 'lobby-status');
+      watching.textContent = `${s.spectators ? `${s.spectators} watching · ` : ''}Spectators can watch with this code at carspectator.spatterson.ca`;
+      this.lobbyBody.appendChild(watching);
+    }
     if (s.status && (server || s.status.includes('team is full'))) {
       const notice = el('div', 'lobby-status');
       notice.textContent = s.status;

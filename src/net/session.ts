@@ -43,6 +43,8 @@ export interface LobbyState {
   isHost: boolean;
   settings: MatchSettings;
   inMatch: boolean;
+  /** Watch-only viewers in a browser-hosted room. */
+  spectators?: number;
   /** Human-readable connection status. */
   status: string;
 }

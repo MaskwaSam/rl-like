@@ -15,6 +15,8 @@ services:
     security_opt: [no-new-privileges:true]
     environment:
       CAR_ORIGIN: https://car.spatterson.ca
+      # Optional watch-only hostname: same password, login API only, no server-room API/WebSocket.
+      CAR_SPECTATOR_ORIGIN: https://carspectator.spatterson.ca
       CAR_BIND: 0.0.0.0
       PORT: '8080'
       CAR_PASSWORD_HASH_FILE: /run/secrets/game-password-hash

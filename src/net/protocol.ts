@@ -13,6 +13,8 @@ import { ByteReader, ByteWriter, readInput, writeInput } from '../sim/state';
 export const PROTOCOL_VERSION = 3;
 export const MAX_TEAM_PLAYERS = 4;
 export const MAX_PLAYERS = MAX_TEAM_PLAYERS * 2;
+/** Watch-only seats per browser-hosted room; they take no car and send no inputs. */
+export const MAX_SPECTATORS = 8;
 /** Car bodies to choose from; must match CAR_BODIES in render/cars.ts. Cosmetic only. */
 export const CAR_BODY_COUNT = 3;
 
@@ -47,11 +49,13 @@ export interface ServerRoomInfo {
 
 export type CtrlMsg =
   | { t: 'hello'; name: string; version: number; dodgeDeadzone: number; body: number }
-  | { t: 'welcome'; slot: number; owner?: boolean; server?: ServerRoomInfo }
+  /** Watch without a car. Hosts that predate spectating ignore it, so the viewer times out. */
+  | { t: 'spectate'; version: number }
+  | { t: 'welcome'; slot: number; owner?: boolean; server?: ServerRoomInfo; spectator?: boolean }
   | { t: 'reject'; reason: string }
   /** Host is ready to receive the unreliable channel; the client creates it on receipt. */
   | { t: 'fastready' }
-  | { t: 'lobby'; players: LobbyPlayer[]; settings: MatchSettings; inMatch: boolean }
+  | { t: 'lobby'; players: LobbyPlayer[]; settings: MatchSettings; inMatch: boolean; spectators?: number }
   | { t: 'team'; team: Team }
   | { t: 'notice'; reason: string }
   | { t: 'body'; body: number }

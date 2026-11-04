@@ -11,7 +11,7 @@ import { Game, type GameConfig } from '../sim/game';
 import { TICK_DT } from '../sim/rl';
 import { ByteReader, quantizeInput } from '../sim/state';
 import type { CarInput } from '../input/types';
-import { DEFAULT_MATCH_SETTINGS, MAX_PLAYERS, PROTOCOL_VERSION, Packet, clampBody, decodeInputs, encodePong, encodeSnapshot, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
+import { DEFAULT_MATCH_SETTINGS, MAX_PLAYERS, MAX_SPECTATORS, PROTOCOL_VERSION, Packet, clampBody, decodeInputs, encodePong, encodeSnapshot, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
 import { acceptConnections, hostRoom, type Link } from './transport';
 import { liveCarState, type CarRenderState, type LobbyState, type Session } from './session';
 import { balancedTeam, teamHasSpace } from './roster';
@@ -53,6 +53,8 @@ export class HostSession implements Session {
   hostDodgeDeadzone = 0.5;
   settings: MatchSettings = { ...DEFAULT_MATCH_SETTINGS };
   private readonly clients = new Map<number, Client>();
+  /** Watch-only links: no slot, no car, no inputs. */
+  private readonly spectators = new Set<Link>();
   private accumulator = 0;
   private inMatch = false;
   private starting = false;
@@ -98,6 +100,7 @@ export class HostSession implements Session {
       isHost: true,
       settings: this.settings,
       inMatch: this.inMatch,
+      spectators: this.spectators.size,
       status: this.teamNotice || `Hosting room ${this.code}`,
     };
   }
@@ -114,7 +117,13 @@ export class HostSession implements Session {
 
   private onConnection(link: Link): void {
     let client: Client | null = null;
+    let spectator = false;
     link.onCtrl = (msg) => {
+      if (spectator) return; // viewers have no lobby controls
+      if (!client && msg.t === 'spectate') {
+        spectator = this.admitSpectator(link, msg.version);
+        return;
+      }
       if (!client) {
         if (msg.t !== 'hello') return;
         if (msg.version !== PROTOCOL_VERSION) {
@@ -153,14 +162,36 @@ export class HostSession implements Session {
     };
     link.onFast = (buf) => {
       if (client) this.onClientPacket(client, buf);
+      else if (spectator && buf.byteLength === 5 && new Uint8Array(buf)[0] === Packet.Ping) link.sendFast(encodePong(new DataView(buf).getUint32(1, true)));
     };
     link.onClose = () => {
+      if (spectator) {
+        spectator = false;
+        this.spectators.delete(link);
+        this.broadcastLobby();
+        return;
+      }
       if (!client) return;
       this.clients.delete(client.slot);
       this.game?.removeCar(client.slot);
       client = null;
       this.broadcastLobby();
     };
+  }
+
+  private admitSpectator(link: Link, version: number): boolean {
+    const reject = (reason: string) => {
+      link.sendCtrl({ t: 'reject', reason });
+      setTimeout(() => link.close(), 500);
+      return false;
+    };
+    if (version !== PROTOCOL_VERSION) return reject('Version mismatch: reload the page');
+    if (this.spectators.size >= MAX_SPECTATORS) return reject(`Room has the maximum ${MAX_SPECTATORS} spectators`);
+    this.spectators.add(link);
+    link.sendCtrl({ t: 'welcome', slot: -1, spectator: true });
+    if (this.inMatch && this.config) link.sendCtrl({ t: 'start', config: this.config });
+    this.broadcastLobby();
+    return true;
   }
 
   private onClientCtrl(client: Client, msg: CtrlMsg): void {
@@ -213,8 +244,9 @@ export class HostSession implements Session {
 
   private broadcastLobby(): void {
     this.teamNotice = '';
-    const msg: CtrlMsg = { t: 'lobby', players: this.players(), settings: this.settings, inMatch: this.inMatch };
+    const msg: CtrlMsg = { t: 'lobby', players: this.players(), settings: this.settings, inMatch: this.inMatch, spectators: this.spectators.size };
     for (const c of this.clients.values()) c.link.sendCtrl(msg);
+    for (const link of this.spectators) link.sendCtrl(msg);
     this.onLobbyChanged?.();
   }
 
@@ -288,6 +320,7 @@ export class HostSession implements Session {
     this.starting = false;
     this.accumulator = 0;
     for (const c of this.clients.values()) c.link.sendCtrl({ t: 'start', config });
+    for (const link of this.spectators) link.sendCtrl({ t: 'start', config });
     this.broadcastLobby();
     this.onMatchStarted?.();
   }
@@ -297,6 +330,7 @@ export class HostSession implements Session {
     if (!this.inMatch) return;
     this.inMatch = false;
     for (const c of this.clients.values()) c.link.sendCtrl({ t: 'end' });
+    for (const link of this.spectators) link.sendCtrl({ t: 'end' });
     this.game?.destroy();
     this.game = null;
     this.config = null;
@@ -328,6 +362,12 @@ export class HostSession implements Session {
     }
     if (steps === 12) this.accumulator = 0;
     this.alpha = Math.min(1, this.accumulator / TICK_DT);
+    // Viewers get the newest tick once per host frame, not only on even ticks: nothing they
+    // receive is older than the host's own screen. They have no inputs to acknowledge.
+    if (steps > 0 && this.spectators.size > 0) {
+      const packet = encodeSnapshot(game.snapshotBytes(), -1, performance.now() - this.startedAt);
+      for (const link of this.spectators) link.sendFast(packet);
+    }
   }
 
   private broadcastSnapshot(): void {
@@ -372,6 +412,8 @@ export class HostSession implements Session {
     this.ended = true;
     for (const c of this.clients.values()) c.link.close();
     this.clients.clear();
+    for (const link of [...this.spectators]) link.close();
+    this.spectators.clear();
     this.game?.destroy();
     this.game = null;
     this.inMatch = false;

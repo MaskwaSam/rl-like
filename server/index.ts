@@ -6,9 +6,21 @@ import { resolve, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import type { CtrlMsg } from '../src/net/protocol';
 
-const origin = new URL(process.env.CAR_ORIGIN ?? 'http://127.0.0.1:5173');
-if (origin.origin !== origin.href.replace(/\/$/, '') || !['http:', 'https:'].includes(origin.protocol)) throw new Error('CAR_ORIGIN must be one HTTP(S) origin');
-if (origin.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)) throw new Error('Public access requires HTTPS');
+function parseOrigin(value: string, name: string): URL {
+  const url = new URL(value);
+  if (url.origin !== url.href.replace(/\/$/, '') || !['http:', 'https:'].includes(url.protocol)) throw new Error(`${name} must be one HTTP(S) origin`);
+  if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new Error('Public access requires HTTPS');
+  return url;
+}
+const origin = parseOrigin(process.env.CAR_ORIGIN ?? 'http://127.0.0.1:5173', 'CAR_ORIGIN');
+/**
+ * Optional watch-only hostname (e.g. carspectator.spatterson.ca). It serves the same build and
+ * password login, but no server-room API or WebSocket: spectators watch LAN play rooms directly
+ * from the host browser. Cookies are host-only, so its login is separate from the game host's.
+ */
+const spectatorOrigin = process.env.CAR_SPECTATOR_ORIGIN ? parseOrigin(process.env.CAR_SPECTATOR_ORIGIN, 'CAR_SPECTATOR_ORIGIN') : null;
+if (spectatorOrigin && (spectatorOrigin.host === origin.host || spectatorOrigin.protocol !== origin.protocol)) throw new Error('CAR_SPECTATOR_ORIGIN must be a different host with the same scheme as CAR_ORIGIN');
+const spectatorApi = new Set(['/game/login', '/game/logout', '/game/status', '/game/health']);
 const passwordHash = process.env.CAR_PASSWORD_HASH_FILE
   ? readFileSync(process.env.CAR_PASSWORD_HASH_FILE, 'utf8').trim() : process.env.CAR_PASSWORD_HASH ?? '';
 if (!/^[a-f0-9]{32}:[a-f0-9]{128}$/.test(passwordHash)) throw new Error('Set CAR_PASSWORD_HASH using npm run password:hash; no default password exists');
@@ -178,10 +190,13 @@ if (existsSync(manifestPath)) {
 const server = createServer(async (req, res) => {
   res.setHeader('Referrer-Policy', 'no-referrer'); res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY'); res.setHeader('Cache-Control', 'no-store');
-  if (req.headers.host !== origin.host) return json(res, 403, { error: 'Invalid host' });
+  const spectatorHost = !!spectatorOrigin && req.headers.host === spectatorOrigin.host;
+  if (req.headers.host !== origin.host && !spectatorHost) return json(res, 403, { error: 'Invalid host' });
+  const requestOrigin = spectatorHost ? spectatorOrigin! : origin;
   try {
-    const path = new URL(req.url ?? '/', origin).pathname;
+    const path = new URL(req.url ?? '/', requestOrigin).pathname;
     if (req.method === 'GET' && (path === '/game/health' || path === '/healthz')) return json(res, 200, { ok: true });
+    if (spectatorHost && path.startsWith('/game/') && !spectatorApi.has(path)) return json(res, 404, { error: 'Not found' });
     let password = full(req); let scoped = roomGrant(req);
     if (req.method === 'GET' && path === '/game/status') return json(res, 200, {
       access: password ? 'password' : scoped ? 'invite' : 'none',
@@ -192,7 +207,7 @@ const server = createServer(async (req, res) => {
         simulation: [...rooms.values()].map(r => r.metrics) });
     }
     if (req.method === 'POST' && path.startsWith('/game/')) {
-      if (req.headers.origin !== origin.origin || !req.headers['content-type']?.startsWith('application/json')) return json(res, 403, { error: 'Same-origin JSON required' });
+      if (req.headers.origin !== requestOrigin.origin || !req.headers['content-type']?.startsWith('application/json')) return json(res, 403, { error: 'Same-origin JSON required' });
       const ip = req.socket.remoteAddress ?? 'unknown';
       if (limited(`api:${ip}`, 90) || limited('api:global', 180)) return json(res, 429, { error: 'Too many attempts. Try again shortly.' });
       const body = await readJson(req);

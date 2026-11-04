@@ -15,9 +15,11 @@
     "test:headless": "node qa/run-headless.mjs headless",
     "test:modes": "node qa/run-headless.mjs modes",
     "test:sessions": "node qa/run-headless.mjs sessions",
+    "test:spectators": "node qa/run-headless.mjs spectators",
     "test:transport": "node qa/transport-regression.mjs",
     "test:retry": "node qa/run-retry.mjs",
-    "test:private": "node qa/run-private.mjs"
+    "test:private": "node qa/run-private.mjs",
+    "test:spectator-host": "node qa/run-spectator-host.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",

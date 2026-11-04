@@ -74,6 +74,7 @@ export class ClientSession implements Session {
   private players: LobbyPlayer[] = [];
   private settings: MatchSettings = { ...DEFAULT_MATCH_SETTINGS };
   private inMatch = false;
+  private spectators = 0;
   private status = 'Connecting…';
   private synced = false;
   private startingGame = false;
@@ -164,6 +165,7 @@ export class ClientSession implements Session {
       server: this.serverInfo,
       settings: this.settings,
       inMatch: this.inMatch,
+      spectators: this.spectators,
       status: this.status,
     };
   }
@@ -195,6 +197,7 @@ export class ClientSession implements Session {
       case 'lobby':
         this.players = msg.players;
         this.settings = msg.settings;
+        this.spectators = msg.spectators ?? 0;
         this.status = `In room ${this.code}`;
         this.onLobbyChanged?.();
         break;

@@ -42,6 +42,17 @@ rooms and invalidates invites; ask for a fresh room rather than silently changin
 Opening another tab reuses the same authenticated seat. The previous tab shows a gate message
 without deleting the shared admission. Explicit leave and logout remove authority and admission.
 
+## Spectator hostname
+
+`CAR_SPECTATOR_ORIGIN` (optional, e.g. `https://carspectator.spatterson.ca`) lets the same service
+answer a second hostname. It must differ from `CAR_ORIGIN` and use the same scheme. That host
+serves the same build and the same password login; its host-only cookie is separate from the
+game host's. Only `/game/login`, `/game/logout`, `/game/status` and health are available there:
+no room creation, code join, invites, metrics or WebSocket. After login the page opens the
+watch-only app (`src/spectator/`), which joins a LAN play room by its code over PeerJS/WebRTC
+directly to the host browser. `?room=CODE` pre-fills and joins; `?spectate` on the game host opens
+the same app for testing. Spectators take no slot, send no inputs and are limited to eight per room.
+
 ## Limits and validation
 
 One room maximum until measured SPN100 capacity justifies increasing it. Global and per-address
@@ -62,8 +73,8 @@ must be reviewed for the invite flow before rollout; do not assume existing inje
 
 ## Verification and deployment boundary
 
-Run `npm run build`, `npm run server:build`, `npm run test:headless`, `npm run test:modes`, and
-`npm run test:private`. Private tests use real localhost HTTP/WebSockets and worker physics with
+Run `npm run build`, `npm run server:build`, `npm run test:headless`, `npm run test:modes`,
+`npm run test:private`, `npm run test:spectators` and `npm run test:spectator-host`. Private tests use real localhost HTTP/WebSockets and worker physics with
 ephemeral random test passwords, never production credentials. The desktop/mobile Playwright
 checks and screenshots are outside the repository in the workspace evidence folder.
 

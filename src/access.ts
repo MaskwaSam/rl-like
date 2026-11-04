@@ -5,6 +5,8 @@ export interface RoomAdmission {
   canCreate: boolean; owner: boolean; inviteUrl?: string;
 }
 export const accessState: { access: 'none' | 'password' | 'invite'; room?: RoomAdmission } = { access: 'none' };
+/** carspectator.* (or ?spectate on the game host) opens the watch-only app after the same password. */
+const spectatorSite = /^carspectator\./i.test(location.hostname) || new URLSearchParams(location.search).has('spectate');
 export async function roomApi<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/game/${path}`, { method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', cache: 'no-store',
     ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) });
@@ -17,12 +19,12 @@ app.hidden = true; document.getElementById('hud')!.hidden = true;
 const gate = document.createElement('main'); gate.className = 'access-gate';
 gate.innerHTML = `<section class="access-card" aria-labelledby="access-title">
   <div class="access-mark" aria-hidden="true">CS</div>
-  <h1 id="access-title">Log into Car Soccer</h1>
-  <p class="access-description">Enter the game password to play.</p>
+  <h1 id="access-title">Log into Car Soccer${spectatorSite ? ' Spectator' : ''}</h1>
+  <p class="access-description">Enter the game password to ${spectatorSite ? 'watch' : 'play'}.</p>
   <form><label for="game-password">Game password</label><input id="game-password" type="password" autocomplete="current-password" required maxlength="256" autofocus />
   <button type="submit">Log in <span aria-hidden="true">→</span></button></form>
   <p class="access-status" role="status" aria-live="polite">Checking access…</p>
-  <p class="access-note">Have an invite? An active room link takes you straight to your friends.</p>
+  ${spectatorSite ? '' : '<p class="access-note">Have an invite? An active room link takes you straight to your friends.</p>'}
 </section>`;
 document.body.appendChild(gate);
 const form = gate.querySelector('form')!;
@@ -36,7 +38,9 @@ async function boot(): Promise<void> {
   // Admission is complete. Give the renderer a measurable container while the
   // gate covers startup; hidden containers produce zero-sized render targets.
   app.hidden = false;
-  const game = await import('./main'); await game.ready; gate.remove();
+  // Spectating needs a password session; a room invite admits only that server room.
+  const game = spectatorSite && accessState.access === 'password' ? await import('./spectator/main') : await import('./main');
+  await game.ready; gate.remove();
 }
 form.addEventListener('submit', async event => {
   event.preventDefault(); if (busy) return;
