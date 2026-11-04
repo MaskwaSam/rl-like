@@ -266,6 +266,50 @@ try {
   check(players.every(p => p.session.game!.score.blue === 0 && p.session.game!.score.orange === 0 && p.session.game!.phase === 'countdown'), 'rematch replaces prediction worlds and resets score/countdown in new epoch');
   players.forEach(finiteRender);
   check(renderSamples > 0 && players.every(p => p.session.stats.snapshots > 10), 'finite carRenderStates remain available across play, pause, reconnect and rematch');
+
+  // A reconnect must recover the current lifecycle, not resurrect the game that
+  // was running when its previous socket closed. Keep actual prediction updating.
+  const startsBeforeOfflineEnd = paused.starts;
+  let priorConnections = paused.browser.sockets.length;
+  let offlineSocket = socket(paused);
+  offlineSocket.close(1000, 'QA disconnect before end');
+  await wait('guest offline before end', () => offlineSocket.readyState === NodeSocket.CLOSED);
+  owner.session.command('end');
+  await wait('end recovered after reconnect', () => paused.browser.sockets.length > priorConnections
+    && players.every(p => !p.session.game && !p.session.lobby.inMatch));
+  check(paused.starts === startsBeforeOfflineEnd && paused.session.localId === seat && ended.length === 0,
+    'ending a match while guest reconnects returns it to the lobby without resurrecting its old world');
+
+  const epochBeforeOfflineStart = socket(paused).epoch;
+  priorConnections = paused.browser.sockets.length;
+  offlineSocket = socket(paused);
+  offlineSocket.close(1000, 'QA disconnect before start');
+  await wait('guest offline before start', () => offlineSocket.readyState === NodeSocket.CLOSED);
+  owner.session.command('start');
+  await wait('new match recovered after reconnect', () => paused.browser.sockets.length > priorConnections
+    && players.every(p => !!p.session.game && p.synchronizedGame === p.session.game && socket(p).epoch > epochBeforeOfflineStart));
+  check(paused.starts === startsBeforeOfflineEnd + 1 && paused.session.localId === seat && ended.length === 0,
+    'starting a match while guest reconnects installs exactly one current-epoch prediction world');
+  players.forEach(finiteRender);
+
+  const other = players[1];
+  const otherSnapshots = other.session.stats.snapshots;
+  const ownerSeat = owner.session.localId;
+  const ownerConnections = owner.browser.sockets.length;
+  const ownerSocket = socket(owner);
+  ownerSocket.close(1000, 'QA owner departure');
+  await wait('owner offline', () => ownerSocket.readyState === NodeSocket.CLOSED);
+  await runFor(400);
+  check(other.session.stats.snapshots > otherSnapshots + 5 && !!other.session.game && ended.length === 0,
+    'server authority and other players continue while the room owner is disconnected');
+  await wait('owner seat restored', () => owner.browser.sockets.length > ownerConnections
+    && owner.session.game !== null && owner.synchronizedGame === owner.session.game
+    && socket(owner).snapshots > 0);
+  check(owner.session.localId === ownerSeat && owner.session.lobby.isHost,
+    'owner reconnect restores its seat and room controls');
+  check(Browser.all.every(browser => browser.sockets.every(ws => ws.preAdmissionBinaries === 0)),
+    'all lifecycle reconnects preserve the admission barrier');
+
   owner.session.command('end');
   await wait('clean room end', () => players.every(p => !p.session.game && !p.session.lobby.inMatch));
   check(ended.length === 0 && players.every(p => socket(p).controls.some(c => c.t === 'end')), 'explicit match end clears every prediction world without ending room sessions');

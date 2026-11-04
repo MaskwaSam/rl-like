@@ -3,6 +3,9 @@
 This pass reduces avoidable work in dedicated server hosting and server-connected player
 sessions. Baseline: `0998166fba124cb4ea3fea87ecde2aa3c14ac0a0`. Production was not changed.
 
+The subsequent [gameplay audit](gameplay-audit.md) records broader validation and added
+regressions for reconnects spanning match changes and goal/overtime catch-up transitions.
+
 ## Changes
 
 - Clients skip pending-input selection and encoding while the socket is unavailable,

@@ -5,7 +5,7 @@ import { RoomAuthority } from '../server/authority';
 import { RoomAuthority as BaselineAuthority } from '../server/authority-baseline';
 import { Game } from '../src/sim/game';
 import { ByteReader } from '../src/sim/state';
-import { TICK_DT } from '../src/sim/rl';
+import { ARENA, TICK_DT } from '../src/sim/rl';
 import { EMPTY_INPUT } from '../src/input/types';
 import { encodeInputs, Packet, PROTOCOL_VERSION, type CtrlMsg } from '../src/net/protocol';
 
@@ -197,6 +197,46 @@ try {
   assert.equal(candidate.authority.game, null);
   await start();
   report.push(advance('start after cancellation', TICK_DT * 2, undefined, 2));
+
+  // Full catch-up frames must retain durable match events even when intermediate
+  // snapshots disappear: kickoff release, score/scorer, overtime and final result.
+  for (const h of both) h.authority.game!.countdown = TICK_DT / 2;
+  report.push(advance('catch-up releases kickoff', TICK_DT * 12, undefined, 12));
+  assert.equal(candidate.authority.game!.phase, 'play');
+  for (const h of both) {
+    h.authority.game!.lastTouch = 1;
+    h.authority.game!.ball.setTranslation({ x: 0, y: 1, z: ARENA.extentY + 3 }, true);
+  }
+  report.push(advance('catch-up scores goal', TICK_DT * 12, undefined, 12));
+  for (const p of candidate.packets) {
+    const state = Game.decode(new ByteReader(p.bytes.slice(9)));
+    assert.equal(state.phase, 'goal'); assert.equal(state.score.blue, 1);
+    assert.equal(state.lastGoal, 'blue'); assert.equal(state.lastGoalScorer, 1);
+  }
+  for (const h of both) h.authority.game!.goalPause = TICK_DT / 2;
+  report.push(advance('catch-up post-goal kickoff', TICK_DT * 12, undefined, 12));
+  assert.equal(candidate.authority.game!.phase, 'countdown');
+  assert.equal(candidate.authority.game!.score.blue, 1);
+  for (const h of both) {
+    const game = h.authority.game!;
+    game.countdown = TICK_DT / 2; game.timeRemaining = 0;
+    game.score.blue = 1; game.score.orange = 1;
+  }
+  report.push(advance('catch-up enters overtime', TICK_DT * 12, undefined, 12));
+  assert.equal(candidate.authority.game!.overtime, true);
+  assert.equal(candidate.authority.game!.phase, 'countdown');
+  for (const h of both) h.authority.game!.countdown = TICK_DT / 2;
+  advance('overtime kickoff release', TICK_DT * 12, undefined, 12);
+  for (const h of both) h.authority.game!.ball.setTranslation({ x: 0, y: 1, z: ARENA.extentY + 3 }, true);
+  report.push(advance('catch-up overtime winner', TICK_DT * 12, undefined, 12));
+  for (const h of both) h.authority.game!.goalPause = TICK_DT / 2;
+  report.push(advance('catch-up publishes final result', TICK_DT * 12, undefined, 12));
+  for (const p of candidate.packets) {
+    const state = Game.decode(new ByteReader(p.bytes.slice(9)));
+    assert.equal(state.phase, 'over'); assert.equal(state.score.blue, 2); assert.equal(state.score.orange, 1);
+  }
+  console.log('PASS catch-up publishes kickoff, score/scorer, overtime and final result with exact baseline game/world state');
+
   for (const h of both) h.authority.destroy();
   report.push(advance('destroyed no-op', .1, [], 0));
   assert.equal(candidate.inputMaps.size, 1, 'one cleared input Map reused across ticks and match resets');
