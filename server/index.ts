@@ -295,16 +295,18 @@ server.on('upgrade', (req, socket, head) => {
       if (roomGrants.get(connection.grantKey) !== grant) { ws.close(4403, 'Admission revoked'); return; }
       if (grant.expiresAt <= Date.now() || (grant.guest && grant.version !== room.version)) { ws.close(4403, 'Invite expired'); return; }
       if (Date.now() - connection.windowAt >= 1000) { connection.windowAt = Date.now(); connection.binaryCount = 0; connection.ctrlCount = 0; }
-      const post = (message: Record<string, unknown>) => {
+      const post = (message: Record<string, unknown>, transfer: ArrayBuffer[] = []) => {
         if (++connection.pending > 64) { ws.close(4408, 'Input queue full'); return; }
-        room.worker.postMessage({ ...message, principal: grant.principal, connectionId: connection.id });
+        room.worker.postMessage({ ...message, principal: grant.principal, connectionId: connection.id }, transfer);
       };
       const bytes = Array.isArray(raw) ? Buffer.concat(raw) : Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
       if (isBinary) {
         if (!connection.admitted || ++connection.binaryCount > 120 || bytes.byteLength > 202 || bytes.byteLength < 5) { ws.close(4400, 'Invalid packet'); return; }
         const epoch = bytes.readUInt32LE(0);
+        // Own just the payload before transferring it; ws may hand us a pooled
+        // Buffer whose backing storage must remain on the main thread.
         const buffer = Uint8Array.from(bytes.subarray(4)).buffer;
-        post({ type: 'binary', epoch, buffer });
+        post({ type: 'binary', epoch, buffer }, [buffer]);
         return;
       }
       if (++connection.ctrlCount > 10) { ws.close(4408, 'Control rate exceeded'); return; }
