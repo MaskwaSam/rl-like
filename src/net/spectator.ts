@@ -1,6 +1,6 @@
 /**
  * A watch-only seat in a browser-hosted room. Nothing here waits in an interpolation buffer:
- * every host snapshot is applied to a local Game, which is then simulated forward to "host now"
+ * the newest host snapshot at each frame is applied to a local Game, then simulated forward to "host now"
  * (time since the snapshot plus half the round trip) with each car repeating the input it had
  * in that snapshot, exactly what the host does with a late packet. On a LAN that is a tick or
  * two of extrapolation, so the picture is as close to live as the host's own screen. Each new
@@ -63,7 +63,8 @@ export class SpectatorSession {
   private startingGame = false;
   private gameGeneration = 0;
   private matchEpoch: number | null = null;
-  private buffered: GameState | null = null;
+  /** One replaceable raw packet, including its actual arrival time (not reconciliation time). */
+  private pending: { buf: ArrayBuffer; tick: number; arrivedAt: number } | null = null;
   private lastSnapshotTick = -1;
   private latestAt = 0;
   /** Fractional playback tick; game.tick is ceil of this. */
@@ -155,7 +156,7 @@ export class SpectatorSession {
   }
 
   private reset(): void {
-    this.buffered = null;
+    this.pending = null;
     this.startingGame = false;
     this.synced = false;
     this.lastSnapshotTick = -1;
@@ -165,6 +166,9 @@ export class SpectatorSession {
     this.carOffsets.clear();
     this.ballOffsetVec.set(0, 0, 0);
     this.demoSeen.clear();
+    this.events.demos.length = 0;
+    this.events.ballHitSpeed = 0;
+    this.events.ballBounceSpeed = 0;
   }
 
   private async startGame(config: GameConfig): Promise<void> {
@@ -187,9 +191,8 @@ export class SpectatorSession {
     this.inMatch = true;
     this.status = 'Waiting for the first snapshot…';
     this.onLobbyChanged?.();
-    const buffered = this.buffered;
-    this.buffered = null;
-    if (buffered) this.onSnapshot(buffered);
+    // Startup must become ready even for consumers that do not update until ready.
+    this.reconcilePending();
   }
 
   // ---------------------------------------------------------------------------
@@ -208,28 +211,34 @@ export class SpectatorSession {
         const sorted = [...this.rttSamples].sort((a, b) => a - b);
         this.ping = sorted[Math.floor(sorted.length / 2)];
       }
-    } else if (type === Packet.Snapshot && buf.byteLength >= 9) {
+    } else if (type === Packet.Snapshot && buf.byteLength >= 13) {
       // The spectator has no input acknowledgement: that header field identifies the match.
       // Fast and reliable channels can cross at a rematch; never apply an old match's state.
       if (this.matchEpoch === null || r.i32() !== this.matchEpoch) return;
       r.u32(); // host time
-      this.onSnapshot(Game.decode(r));
+      const tick = r.u32(); // first field of Game.serialize; do not decode obsolete bodies
+      if (tick <= this.lastSnapshotTick || (this.pending && tick <= this.pending.tick)) return;
+      if (!this.startingGame && !this.game) return;
+      this.pending = { buf, tick, arrivedAt: performance.now() };
+      if (!this.synced && this.game) this.reconcilePending();
     }
   }
 
-  private onSnapshot(state: GameState): void {
+  private reconcilePending(): void {
+    const pending = this.pending;
+    if (!pending || !this.game || this.ended) return;
+    this.pending = null;
+    this.onSnapshot(Game.decode(new ByteReader(pending.buf, 9)), pending.arrivedAt);
+  }
+
+  private onSnapshot(state: GameState, arrivedAt: number): void {
     if (this.ended) return;
-    if (this.startingGame) {
-      if (!this.buffered || state.tick > this.buffered.tick) this.buffered = state;
-      return;
-    }
     const game = this.game;
     if (!game || state.tick <= this.lastSnapshotTick) return; // stale or out of order
-    const now = performance.now();
-    if (this.latestAt) this.stats.snapshotIntervalMs += ((now - this.latestAt) - this.stats.snapshotIntervalMs) * 0.1;
+    if (this.latestAt) this.stats.snapshotIntervalMs += ((arrivedAt - this.latestAt) - this.stats.snapshotIntervalMs) * 0.1;
     this.stats.snapshots++;
     this.lastSnapshotTick = state.tick;
-    this.latestAt = now;
+    this.latestAt = arrivedAt;
 
     if (!this.synced) {
       game.applyState(state);
@@ -252,6 +261,12 @@ export class SpectatorSession {
     const oldPrevBall = { ...game.prev.ball };
     const ballWasVisible = game.ballVisible;
 
+    // A newer correction can jump over ticks we have not predicted yet. Run a bounded
+    // effects-only catch-up before replacing the bodies, otherwise batching would erase
+    // even locally predictable demos/impacts in that interval. Never replay an unbounded
+    // background-tab gap. The old visual samples above remain the smoothing baseline.
+    const effectsTo = Math.min(state.tick, oldTick + MAX_RESIM_TICKS);
+    while (game.tick < effectsTo) this.step(game, true);
     game.applyState(state);
     if (this.renderTick < state.tick) this.renderTick = state.tick;
     const resimTo = Math.min(oldTick, state.tick + MAX_RESIM_TICKS);
@@ -316,6 +331,12 @@ export class SpectatorSession {
     this.events.demos.length = 0;
     this.events.ballHitSpeed = 0;
     this.events.ballBounceSpeed = 0;
+    // Reconciliation can emit deduplicated resimulation demos. Clear before it, so the
+    // renderer/audio consumer sees those effects in this frame, not an erased callback batch.
+    // Snapshots contain persistent score/goal/car state, not a host collision-event stream;
+    // intermediate corrections are not an event log and must not be queued as one.
+    this.reconcilePending();
+    if (this.ended) return;
     if (now - this.lastPingSent > PING_INTERVAL_MS) {
       this.lastPingSent = now;
       this.link.sendFast(encodePing(now));
@@ -377,7 +398,9 @@ export class SpectatorSession {
     this.admitted?.(reason);
     this.admitted = null;
     this.inMatch = false;
-    this.synced = false;
+    this.matchEpoch = null;
+    this.gameGeneration++;
+    this.reset();
     this.link.close();
     this.game?.destroy();
     this.game = null;
