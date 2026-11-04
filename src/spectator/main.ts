@@ -155,6 +155,11 @@ async function main(): Promise<void> {
   const freeCam = new FreeCamera();
   const camera = renderer.camera;
 
+  // Renderer.resize updates the aspect first; restore the chase camera's horizontal FOV after it.
+  window.addEventListener('resize', () => {
+    if (mode === 'player') followCam.applyProjection(camera);
+  });
+
   const dbg = window as unknown as Record<string, unknown>;
   dbg.__renderer = renderer;
   Object.defineProperty(dbg, '__spectator', { get: () => session, configurable: true });
