@@ -1,0 +1,398 @@
+{
+  "sourceCommit": "141fc88ab06a193ae00585f3d150025ab0e295a7",
+  "runtimeFileSha256": {
+    "src/net/transport.ts": "853255bfbd58ab32962e40604c94091a8524c0769e514e12c3e7e43f877fcced",
+    "src/net/host.ts": "b3732d94a8b0b98689ad903dc9cb99fddb1357ccaca93c75be9617b057d0b517",
+    "src/net/spectator.ts": "e4fd323a606b2222f20a287b6c4d1b34a61ba6f1f5226eecbd7ab9c9651c21d8",
+    "src/sim/game.ts": "d03ab4f596683e5e8b8eb15b0f2c73276e3130de09526c4dd10421d76904d55f",
+    "src/render/renderer.ts": "f57a01f61ad0f7679a6923b53dc816e4d1dfe135f5c3cad91f78c122320cfe58",
+    "src/spectator/main.ts": "57ad4421f2972cc6d82c8e89fbecc2fd3acdec47f0a827ad8d612d07a0ebe8c1"
+  },
+  "scope": "Controlled headless workload counts and single-Mac real-WebRTC browser behavior; not physical LAN, GPU, display latency or FPS acceptance.",
+  "before": {
+    "scope": "Headless production HostSession/SpectatorSession/Link; fake data channels model synchronous bufferedAmount growth and draining only between tasks. Counts, not physical LAN latency or FPS.",
+    "burst": [
+      {
+        "hostFps": 60,
+        "hostTick": 2,
+        "sentTicks": [
+          2
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 0,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      {
+        "hostFps": 30,
+        "hostTick": 4,
+        "sentTicks": [
+          2
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 1,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      {
+        "hostFps": 20,
+        "hostTick": 6,
+        "sentTicks": [
+          2
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 2,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      {
+        "hostFps": 10,
+        "hostTick": 12,
+        "sentTicks": [
+          2
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 5,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      }
+    ],
+    "workload": [
+      {
+        "hostFps": 30,
+        "seconds": 2,
+        "physicsTicks": 240,
+        "serializations": 180,
+        "playerPackets": 840,
+        "viewerPackets": 480,
+        "viewerBytes": 539520,
+        "viewerPacketBytes": 1124
+      },
+      {
+        "hostFps": 60,
+        "seconds": 2,
+        "physicsTicks": 240,
+        "serializations": 240,
+        "playerPackets": 840,
+        "viewerPackets": 960,
+        "viewerBytes": 1079040,
+        "viewerPacketBytes": 1124
+      },
+      {
+        "hostFps": 120,
+        "seconds": 2,
+        "physicsTicks": 240,
+        "serializations": 360,
+        "playerPackets": 840,
+        "viewerPackets": 1920,
+        "viewerBytes": 2158080,
+        "viewerPacketBytes": 1124
+      }
+    ],
+    "receive": {
+      "newSnapshotsBetweenDraws": 6,
+      "newApplications": 6,
+      "newDecodes": 6,
+      "duplicateApplications": 0,
+      "duplicateDecodes": 6
+    }
+  },
+  "after": {
+    "scope": "Headless production HostSession/SpectatorSession/Link; fake data channels model synchronous bufferedAmount growth and draining only between tasks. Counts, not physical LAN latency or FPS.",
+    "burst": [
+      {
+        "hostFps": 60,
+        "hostTick": 2,
+        "sentTicks": [
+          2
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 0,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      {
+        "hostFps": 30,
+        "hostTick": 4,
+        "sentTicks": [
+          4
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 0,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      {
+        "hostFps": 20,
+        "hostTick": 6,
+        "sentTicks": [
+          6
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 0,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      {
+        "hostFps": 10,
+        "hostTick": 12,
+        "sentTicks": [
+          12
+        ],
+        "traffic": {
+          "fastOpen": true,
+          "fastBufferedBytes": 386,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 0,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      }
+    ],
+    "workload": [
+      {
+        "hostFps": 30,
+        "seconds": 2,
+        "physicsTicks": 240,
+        "serializations": 60,
+        "playerPackets": 420,
+        "viewerPackets": 480,
+        "viewerBytes": 539520,
+        "viewerPacketBytes": 1124
+      },
+      {
+        "hostFps": 60,
+        "seconds": 2,
+        "physicsTicks": 240,
+        "serializations": 120,
+        "playerPackets": 840,
+        "viewerPackets": 960,
+        "viewerBytes": 1079040,
+        "viewerPacketBytes": 1124
+      },
+      {
+        "hostFps": 120,
+        "seconds": 2,
+        "physicsTicks": 240,
+        "serializations": 240,
+        "playerPackets": 840,
+        "viewerPackets": 1920,
+        "viewerBytes": 2158080,
+        "viewerPacketBytes": 1124
+      }
+    ],
+    "receive": {
+      "newSnapshotsBetweenDraws": 6,
+      "newApplications": 1,
+      "newDecodes": 1,
+      "duplicateApplications": 0,
+      "duplicateDecodes": 0
+    }
+  },
+  "browser": {
+    "scope": "Built app on localhost; real PeerJS signalling and WebRTC between a host, desktop viewer and touch-enabled viewer on one Mac; software-rendered WebGL. Not a physical-LAN, multi-device or rendered-performance claim.",
+    "checks": [
+      "LAN host room created (TDJVG)",
+      "host lobby shows the spectator hint",
+      "spectator host shows spectator login",
+      "spectator joined over WebRTC from the room link and waits for kickoff",
+      "host lobby counts 1 watching",
+      "spectator took no player slot",
+      "spectator synchronized when the host started",
+      "300 ms same-task pause does not retire a healthy fast channel",
+      "host and spectator retain fast channels after the scheduling pause",
+      "spectator picture within 6 ticks (50 ms) of the host on median (-0.9 ticks)",
+      "spectator sees the host car drive",
+      "overview broadcast camera is the default",
+      "resize leaves the overview camera projection under overview control",
+      "O toggles to the full-field overview",
+      "1 follows the first player",
+      "followed player name shown",
+      "player view preserves horizontal FOV on portrait rotation without reselecting",
+      "player view preserves horizontal FOV when rotated back to landscape",
+      "B switches player view to car cam",
+      "ball-cam button reflects disabled preference",
+      "boost labels repopulate after view controls rebuild",
+      "ball-cam button reflects enabled preference",
+      "switching player view during a goal pause keeps car cam",
+      "goal pause preserves the latest viewer preference",
+      "free camera flies with W and Space",
+      "resize leaves the free camera projection under free-camera control",
+      "Overview button returns to the overview",
+      "player button follows that player",
+      "H hides the overlay for a clean feed",
+      "second spectator (same login, phone viewport) joins mid-match",
+      "touch Hide removes the spectator bar",
+      "hidden overlay leaves a visible touch control to restore it",
+      "touch Show controls restores the spectator bar without a keyboard",
+      "restoring controls preserves the current camera view",
+      "spectator returns to waiting when the host ends the match",
+      "touch reveal control disappears when the host ends the match",
+      "match end resets hidden overlay and help",
+      "rematch displays a fresh countdown banner",
+      "fast channel survives camera changes and rematch without false retirement",
+      "host departure returns the spectator to the code screen with a reason",
+      "touch reveal control stays hidden after host departure",
+      "browser run has no uncaught page errors"
+    ],
+    "measurements": {
+      "schedulingProbe": {
+        "before": {
+          "fastOpen": true,
+          "fastBufferedBytes": 0,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 1,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 0,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        },
+        "after": {
+          "fastOpen": true,
+          "fastBufferedBytes": 5,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 2,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 1,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      "lagTicksMedian": -0.8833658582448152,
+      "lagTicksMax": -0.7921062246904285,
+      "pingMs": 2,
+      "spectatorStats": {
+        "snapshots": 336,
+        "resims": 261,
+        "resimTicks": 318,
+        "clockSnaps": 1,
+        "extrapolatedTicks": 3,
+        "snapshotIntervalMs": 16.65229653684936
+      },
+      "traffic": {
+        "host": [
+          {
+            "fastOpen": true,
+            "fastBufferedBytes": 0,
+            "reliableBufferedBytes": 0,
+            "reliableQueuedMessages": 0,
+            "fastSubmitted": 424,
+            "fallbackSubmitted": 0,
+            "droppedBackpressure": 0,
+            "droppedUnavailable": 0,
+            "sendErrors": 0,
+            "fastStallRecoveries": 0
+          }
+        ],
+        "spectator": {
+          "fastOpen": true,
+          "fastBufferedBytes": 0,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 14,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 1,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      "resizeFov": {
+        "landscape": 109.99999999999997,
+        "portrait": 109.99999999999996
+      },
+      "finalSpectatorTraffic": {
+        "fastOpen": true,
+        "fastBufferedBytes": 0,
+        "reliableBufferedBytes": 0,
+        "reliableQueuedMessages": 0,
+        "fastSubmitted": 33,
+        "fallbackSubmitted": 0,
+        "droppedBackpressure": 1,
+        "droppedUnavailable": 0,
+        "sendErrors": 0,
+        "fastStallRecoveries": 0
+      }
+    },
+    "screenshotsEnabled": false,
+    "passed": 42
+  },
+  "browserAttemptNote": "Initial screenshot-enabled run stalled at free-camera movement (both pages reported 0 fps). Final run suppressed drawing and screenshots; all42 behavior assertions passed. Check wording corrected to omit screenshots; predicate unchanged.",
+  "checksPassed": [
+    "npm run build",
+    "npm run server:build",
+    "npm run typecheck",
+    "npm run test:lan",
+    "npm run test:sessions",
+    "npm run test:spectators",
+    "npm run test:host-startup",
+    "npm run test:spectator-admission",
+    "npm run test:retry",
+    "npm run test:spectator-host",
+    "QA_SCREENSHOTS=0 node qa/spectator-browser.mjs"
+  ]
+}
