@@ -1,0 +1,275 @@
+{
+  "baseline": "29cebbaf055d7e8bdd010c0e975a31afad19c527",
+  "scope": "Targeted source-site allocation counters and real Three.js object fixtures; not heap, GPU, FPS or physical LAN measurements.",
+  "friction": {
+    "snapshots": 1440,
+    "cars": 8,
+    "contactTicks": [
+      3502,
+      45,
+      67,
+      22,
+      7884
+    ],
+    "demoTicks": 30,
+    "landings": 36,
+    "baseline": {
+      "calls": 8018,
+      "contacts": 31781,
+      "arrays": 16036,
+      "vectors": 63562
+    },
+    "candidate": {
+      "calls": 8018,
+      "contacts": 31781,
+      "arrays": 0,
+      "vectors": 0
+    }
+  },
+  "spectatorScratch": [
+    {
+      "workload": "8 cars / 100 same-tick corrections",
+      "baseline": {
+        "maps": 200,
+        "inputMaps": 0,
+        "bodies": 1800,
+        "copies": 1800
+      },
+      "candidate": {
+        "maps": 0,
+        "inputMaps": 0,
+        "bodies": 0,
+        "copies": 1800
+      }
+    },
+    {
+      "workload": "8 cars / 100 replay corrections (2 ticks)",
+      "baseline": {
+        "maps": 200,
+        "inputMaps": 200,
+        "bodies": 1800,
+        "copies": 1800
+      },
+      "candidate": {
+        "maps": 0,
+        "inputMaps": 0,
+        "bodies": 0,
+        "copies": 900
+      }
+    },
+    {
+      "workload": "8 cars / 100 newer-authority corrections",
+      "baseline": {
+        "maps": 200,
+        "inputMaps": 0,
+        "bodies": 1800,
+        "copies": 1800
+      },
+      "candidate": {
+        "maps": 0,
+        "inputMaps": 0,
+        "bodies": 0,
+        "copies": 0
+      }
+    },
+    {
+      "workload": "8 cars / replay cap exceeded",
+      "baseline": {
+        "maps": 2,
+        "inputMaps": 30,
+        "bodies": 18,
+        "copies": 18
+      },
+      "candidate": {
+        "maps": 0,
+        "inputMaps": 0,
+        "bodies": 0,
+        "copies": 0
+      }
+    }
+  ],
+  "spectatorExactComparisons": 478,
+  "pads": {
+    "fixture": "production Renderer.syncPads with real THREE.InstancedMesh (no WebGL)",
+    "checks": 6,
+    "oldPathPerFrame": {
+      "colorWrites": 3,
+      "colorAttributeVersionChanges": {
+        "big": 1,
+        "small": 1
+      }
+    },
+    "steadyFrameColorWrites": 0,
+    "steadyFrameColorAttributeVersionChanges": 0,
+    "transitionColorWrites": 1,
+    "transitionAttributeVersionChanges": {
+      "affectedMesh": 1,
+      "otherRingMesh": 0
+    },
+    "steadyFrameBigOrbMatrixWrites": 1
+  },
+  "nameplates": {
+    "alternatingViews": 100,
+    "baselineCanvases": 50,
+    "candidateCanvases": 1,
+    "actualBaselineLoaded": true
+  },
+  "recordedAtUtc": "2026-11-04T17:58:48.038403+00:00",
+  "sourceCommit": "46381197ebc6e91ed17523f17b89ec4f392a54d0",
+  "runtimeSha256": {
+    "src/sim/car.ts": "39f1368b557e06523353e526c7bccb825b86c50845c71b1cdcd75dd79bc680b6",
+    "src/net/spectator.ts": "2ac1b8bcbb9a78a7d5ea50695a13aafbf556b9647b42796ab422be0da2061a79",
+    "src/render/renderer.ts": "d9d5139edc7fd994a6b839a473e807ae8644ac4bdffd562eb654cfc96af500e2"
+  },
+  "checksPassed": [
+    "npm run test:hotpaths",
+    "npm run test:lan",
+    "npm run test:sessions",
+    "npm run test:spectators",
+    "npm run test:headless",
+    "npm run test:modes",
+    "npm run build",
+    "npm run server:build",
+    "QA_SCREENSHOTS=0 PLAYWRIGHT_MODULE=<installed Playwright module> node qa/spectator-browser.mjs",
+    "git diff --check"
+  ],
+  "browser": {
+    "scope": "Built app on localhost; real PeerJS signalling and WebRTC between a host, desktop viewer and touch-enabled viewer on one Mac. Rendering and screenshots suppressed by the test harness. Not a physical-LAN, multi-device, GPU or rendered-performance measurement.",
+    "checks": [
+      "LAN host room created (74DCS)",
+      "host lobby shows the spectator hint",
+      "spectator host shows spectator login",
+      "spectator joined over WebRTC from the room link and waits for kickoff",
+      "host lobby counts 1 watching",
+      "spectator took no player slot",
+      "spectator synchronized when the host started",
+      "300 ms same-task pause does not retire a healthy fast channel",
+      "host and spectator retain fast channels after the scheduling pause",
+      "spectator picture within 6 ticks (50 ms) of the host on median (-1.1 ticks)",
+      "spectator sees the host car drive",
+      "overview broadcast camera is the default",
+      "resize leaves the overview camera projection under overview control",
+      "O toggles to the full-field overview",
+      "1 follows the first player",
+      "followed player name shown",
+      "player view preserves horizontal FOV on portrait rotation without reselecting",
+      "player view preserves horizontal FOV when rotated back to landscape",
+      "B switches player view to car cam",
+      "ball-cam button reflects disabled preference",
+      "boost labels repopulate after view controls rebuild",
+      "ball-cam button reflects enabled preference",
+      "switching player view during a goal pause keeps car cam",
+      "goal pause preserves the latest viewer preference",
+      "free camera flies with W and Space",
+      "resize leaves the free camera projection under free-camera control",
+      "Overview button returns to the overview",
+      "camera switching reuses the player nameplate texture and sprite",
+      "player button follows that player",
+      "H hides the overlay for a clean feed",
+      "second spectator (same login, phone viewport) joins mid-match",
+      "touch Hide removes the spectator bar",
+      "hidden overlay leaves a visible touch control to restore it",
+      "touch Show controls restores the spectator bar without a keyboard",
+      "restoring controls preserves the current camera view",
+      "spectator returns to waiting when the host ends the match",
+      "touch reveal control disappears when the host ends the match",
+      "match end resets hidden overlay and help",
+      "rematch displays a fresh countdown banner",
+      "fast channel survives camera changes and rematch without false retirement",
+      "host departure returns the spectator to the code screen with a reason",
+      "touch reveal control stays hidden after host departure",
+      "browser run has no uncaught page errors"
+    ],
+    "measurements": {
+      "schedulingProbe": {
+        "before": {
+          "fastOpen": true,
+          "fastBufferedBytes": 0,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 2,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 0,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        },
+        "after": {
+          "fastOpen": true,
+          "fastBufferedBytes": 5,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 3,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 1,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      "lagTicksMedian": -1.0623807933689022,
+      "lagTicksMax": 4.683340805199123,
+      "pingMs": 3,
+      "spectatorStats": {
+        "snapshots": 153,
+        "resims": 121,
+        "resimTicks": 167,
+        "clockSnaps": 0,
+        "extrapolatedTicks": 4,
+        "snapshotIntervalMs": 37.37672255833341
+      },
+      "traffic": {
+        "host": [
+          {
+            "fastOpen": true,
+            "fastBufferedBytes": 0,
+            "reliableBufferedBytes": 0,
+            "reliableQueuedMessages": 0,
+            "fastSubmitted": 779,
+            "fallbackSubmitted": 0,
+            "droppedBackpressure": 11,
+            "droppedUnavailable": 0,
+            "sendErrors": 0,
+            "fastStallRecoveries": 0
+          }
+        ],
+        "spectator": {
+          "fastOpen": true,
+          "fastBufferedBytes": 0,
+          "reliableBufferedBytes": 0,
+          "reliableQueuedMessages": 0,
+          "fastSubmitted": 12,
+          "fallbackSubmitted": 0,
+          "droppedBackpressure": 1,
+          "droppedUnavailable": 0,
+          "sendErrors": 0,
+          "fastStallRecoveries": 0
+        }
+      },
+      "resizeFov": {
+        "landscape": 109.99999999999997,
+        "portrait": 109.99999999999996
+      },
+      "finalSpectatorTraffic": {
+        "fastOpen": true,
+        "fastBufferedBytes": 0,
+        "reliableBufferedBytes": 0,
+        "reliableQueuedMessages": 0,
+        "fastSubmitted": 46,
+        "fallbackSubmitted": 0,
+        "droppedBackpressure": 1,
+        "droppedUnavailable": 0,
+        "sendErrors": 0,
+        "fastStallRecoveries": 0
+      }
+    },
+    "screenshotsEnabled": false,
+    "passed": 43
+  },
+  "independentReview": {
+    "reviewer": "GPT-6.1 Sol, high",
+    "findings": [],
+    "scope": "Read-only correctness and regression review of integrated changes; no P-level findings."
+  },
+  "deploymentChanged": false
+}
