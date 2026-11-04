@@ -9,7 +9,8 @@
  */
 import type { Peer } from 'peerjs';
 import { Quaternion, Vector3 } from 'three';
-import { Game, type BodyState, type GameConfig, type GameState } from '../sim/game';
+import { Game, emptyState, type BodyState, type GameConfig, type GameState } from '../sim/game';
+import type { CarInput } from '../input/types';
 import { TICK_DT, TICK_RATE } from '../sim/rl';
 import { ByteReader } from '../sim/state';
 import { DEFAULT_MATCH_SETTINGS, PROTOCOL_VERSION, Packet, clampBody, encodePing, type CtrlMsg, type LobbyPlayer, type MatchSettings } from './protocol';
@@ -72,6 +73,12 @@ export class SpectatorSession {
   private lastPingSent = -Infinity;
   private readonly rttSamples: number[] = [];
   private readonly carOffsets = new Map<number, { pos: Vector3; quat: Quaternion }>();
+  /** Private copies only: never lend these bodies to Game or a render consumer. */
+  private readonly oldCars = new Map<number, BodyState>();
+  private readonly oldPrevCars = new Map<number, BodyState>();
+  private readonly oldBall = emptyState();
+  private readonly oldPrevBall = emptyState();
+  private readonly emptyInputs: ReadonlyMap<number, CarInput> = new Map();
   private readonly ballOffsetVec = new Vector3();
   private readonly demoSeen = new Map<number, number>();
   private admitted: ((err: string | null) => void) | null = null;
@@ -164,6 +171,8 @@ export class SpectatorSession {
     this.renderTick = 0;
     this.alpha = 1;
     this.carOffsets.clear();
+    this.oldCars.clear();
+    this.oldPrevCars.clear();
     this.ballOffsetVec.set(0, 0, 0);
     this.demoSeen.clear();
     this.events.demos.length = 0;
@@ -259,19 +268,28 @@ export class SpectatorSession {
       return;
     }
 
-    // Remember what is on screen so the correction can fade instead of pop.
     const oldTick = game.tick;
-    const oldCars = new Map<number, BodyState>();
-    const oldPrevCars = new Map<number, BodyState>();
-    for (const [id, body] of game.curr.cars) oldCars.set(id, { ...body });
-    for (const [id, body] of game.prev.cars) oldPrevCars.set(id, { ...body });
-    const oldBall = { ...game.curr.ball };
-    const oldPrevBall = { ...game.prev.ball };
+    const resimTo = Math.min(oldTick, state.tick + MAX_RESIM_TICKS);
+    const comparable = state.tick <= oldTick && resimTo === oldTick;
+    const keepPrev = resimTo === state.tick;
+    const { oldCars, oldPrevCars, oldBall, oldPrevBall } = this;
+    // Newer authority and capped replay cannot return to the displayed tick. Do not
+    // copy transforms that cannot be compared, or run extra physics to make them comparable.
+    if (comparable) {
+      this.captureCars(game.curr.cars, oldCars);
+      Object.assign(oldBall, game.curr.ball);
+      if (keepPrev) {
+        this.captureCars(game.prev.cars, oldPrevCars);
+        Object.assign(oldPrevBall, game.prev.ball);
+      }
+    }
     const ballWasVisible = game.ballVisible;
 
     game.applyState(state);
+    // Prune even when this correction cannot be compared with the displayed tick.
+    for (const id of oldCars.keys()) if (!game.cars.has(id)) oldCars.delete(id);
+    for (const id of oldPrevCars.keys()) if (!game.cars.has(id)) oldPrevCars.delete(id);
     if (this.renderTick < state.tick) this.renderTick = state.tick;
-    const resimTo = Math.min(oldTick, state.tick + MAX_RESIM_TICKS);
     if (resimTo > state.tick) {
       this.stats.resims++;
       while (game.tick < resimTo) this.step(game, false);
@@ -280,7 +298,6 @@ export class SpectatorSession {
     // When the snapshot lands on the displayed tick, applyState collapsed prev onto curr. For
     // anything that was not teleported, keep the previous on-screen tick so this frame's
     // interpolation does not jump by a fraction of a tick.
-    const keepPrev = resimTo === state.tick;
 
     for (const [id, body] of game.curr.cars) {
       const old = oldCars.get(id);
@@ -294,7 +311,7 @@ export class SpectatorSession {
         tmpQ2.set(body.qx, body.qy, body.qz, body.qw).invert();
         offset.quat.premultiply(tmpQ.multiply(tmpQ2));
         const prev = oldPrevCars.get(id);
-        if (keepPrev && prev) game.prev.cars.set(id, prev);
+        if (keepPrev && prev) Object.assign(game.prev.cars.get(id)!, prev);
       } else {
         offset.pos.set(0, 0, 0);
         offset.quat.identity();
@@ -308,9 +325,18 @@ export class SpectatorSession {
     } else this.ballOffsetVec.set(0, 0, 0);
   }
 
+  private captureCars(from: ReadonlyMap<number, BodyState>, into: Map<number, BodyState>): void {
+    for (const [id, body] of from) {
+      let copy = into.get(id);
+      if (!copy) into.set(id, copy = emptyState());
+      Object.assign(copy, body);
+    }
+    for (const id of into.keys()) if (!from.has(id)) into.delete(id);
+  }
+
   /** One tick with every car repeating its last input; records effects without duplicates. */
   private step(game: Game, forward: boolean): void {
-    game.step(new Map(), TICK_DT);
+    game.step(this.emptyInputs, TICK_DT);
     if (forward) {
       this.events.ballHitSpeed = Math.max(this.events.ballHitSpeed, game.ballHitRelSpeed);
       this.events.ballBounceSpeed = Math.max(this.events.ballBounceSpeed, game.ballBounceDeltaV);
