@@ -352,6 +352,7 @@ export class HostSession implements Session {
     const local = quantizeInput(input);
     this.accumulator += frameDt;
     let steps = 0;
+    let playerSnapshotDue = false;
     const inputs = new Map<number, CarInput>();
     while (this.accumulator >= TICK_DT && steps < 12) {
       const tick = game.tick;
@@ -366,23 +367,29 @@ export class HostSession implements Session {
       game.step(inputs, TICK_DT);
       this.accumulator -= TICK_DT;
       steps++;
-      if (game.tick % SNAPSHOT_INTERVAL === 0) this.broadcastSnapshot();
+      if (game.tick % SNAPSHOT_INTERVAL === 0) playerSnapshotDue = true;
     }
     if (steps === 12) this.accumulator = 0;
     this.alpha = Math.min(1, this.accumulator / TICK_DT);
+    const spectatorSnapshotDue = steps > 0 && this.spectators.size > 0;
+    // Serialize only after catch-up so every recipient gets the newest simulated tick. Reuse
+    // the state bytes, while encoding each packet separately for its ack/epoch header.
+    if ((playerSnapshotDue && this.clients.size > 0) || spectatorSnapshotDue) {
+      const state = game.snapshotBytes();
+      const now = performance.now() - this.startedAt;
+      if (playerSnapshotDue && this.clients.size > 0) this.broadcastSnapshot(state, now);
+      if (spectatorSnapshotDue) {
+        const packet = encodeSnapshot(state, this.spectatorEpoch, now);
+        for (const link of this.spectators) link.sendFast(packet);
+      }
+    }
     // Viewers get the newest tick once per host frame, not only on even ticks: nothing they
     // receive is older than the host's own screen. They have no inputs to acknowledge.
-    if (steps > 0 && this.spectators.size > 0) {
-      const packet = encodeSnapshot(game.snapshotBytes(), this.spectatorEpoch, performance.now() - this.startedAt);
-      for (const link of this.spectators) link.sendFast(packet);
-    }
   }
 
-  private broadcastSnapshot(): void {
+  private broadcastSnapshot(state: ArrayBuffer, now: number): void {
     const game = this.game;
     if (!game || this.clients.size === 0) return;
-    const state = game.snapshotBytes();
-    const now = performance.now() - this.startedAt;
     for (const c of this.clients.values()) {
       c.link.sendFast(encodeSnapshot(state, c.lastInputTick, now));
     }
