@@ -27,7 +27,9 @@ export class RoomAuthority {
   private generation = 0;
   private closed = false;
   private accumulator = 0;
+  private readonly tickInputs = new Map<number, CarInput>();
   private readonly startedAt = performance.now();
+  // snapshots counts emitted batches, not crossed cadence boundaries or recipients.
   readonly metrics = { ticks: 0, droppedBacklogs: 0, snapshots: 0, maxStepMs: 0 };
 
   constructor(readonly owner: string, readonly teamSize: number,
@@ -156,9 +158,11 @@ export class RoomAuthority {
     if (!game) return;
     this.accumulator += Math.min(Math.max(dt, 0), 0.1);
     let steps = 0;
+    let snapshotDue = false;
     while (this.accumulator >= TICK_DT && steps++ < 12) {
       const started = performance.now();
-      const inputs = new Map<number, CarInput>();
+      const inputs = this.tickInputs;
+      inputs.clear(); // Removed/reassigned slots must not survive from the previous tick.
       for (const p of this.players.values()) {
         const input = p.inputs.get(game.tick);
         inputs.set(p.slot, !p.connected || now - p.inputAt > 250 ? EMPTY_INPUT : input ?? game.cars.get(p.slot)?.lastInput ?? EMPTY_INPUT);
@@ -168,13 +172,19 @@ export class RoomAuthority {
       this.metrics.ticks++;
       this.accumulator -= TICK_DT;
       this.metrics.maxStepMs = Math.max(this.metrics.maxStepMs, performance.now() - started);
-      if (game.tick % (120 / this.snapshotHz) === 0) {
-        const state = game.snapshotBytes();
-        for (const p of this.players.values()) if (p.connected) this.binary(p.principal, this.epoch, encodeSnapshot(state, p.lastInputTick, now - this.startedAt));
-        this.metrics.snapshots++;
-      }
+      if (game.tick % (120 / this.snapshotHz) === 0) snapshotDue = true;
     }
     if (this.accumulator >= TICK_DT) { this.metrics.droppedBacklogs++; this.accumulator = 0; }
+    if (snapshotDue) {
+      // Catch-up ticks supersede earlier boundaries; capture only the freshest state,
+      // and do no serialization work until there is a connected recipient.
+      let state: ArrayBuffer | undefined;
+      for (const p of this.players.values()) if (p.connected) {
+        state ??= game.snapshotBytes();
+        this.binary(p.principal, this.epoch, encodeSnapshot(state, p.lastInputTick, now - this.startedAt));
+      }
+      if (state) this.metrics.snapshots++;
+    }
   }
 
   private async start(): Promise<void> {
