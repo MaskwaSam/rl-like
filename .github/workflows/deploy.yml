@@ -36,6 +36,10 @@ jobs:
         run: npm run test:sessions
       - name: Run transport regression
         run: npm run test:transport
+      - name: Run host startup failure regression
+        run: npm run test:host-startup
+      - name: Run spectator admission regression
+        run: npm run test:spectator-admission
       - name: Run spectator regression
         run: npm run test:spectators
       - name: Run spectator hostname checks

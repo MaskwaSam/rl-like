@@ -52,6 +52,8 @@ no room creation, code join, invites, metrics or WebSocket. After login the page
 watch-only app (`src/spectator/`), which joins a LAN play room by its code over PeerJS/WebRTC
 directly to the host browser. `?room=CODE` pre-fills and joins; `?spectate` on the game host opens
 the same app for testing. Spectators take no slot, send no inputs and are limited to eight per room.
+Hide leaves a small Show controls button available, including on touchscreens. Player-view
+framing follows window resizing and device rotation without requiring a new camera selection.
 
 ## Limits and validation
 
@@ -74,12 +76,13 @@ must be reviewed for the invite flow before rollout; do not assume existing inje
 ## Verification and deployment boundary
 
 Run `npm run build`, `npm run server:build`, `npm run test:headless`, `npm run test:modes`,
-`npm run test:private`, `npm run test:spectators` and `npm run test:spectator-host`. Private tests use real localhost HTTP/WebSockets and worker physics with
+`npm run test:private`, `npm run test:spectators`, `npm run test:host-startup`,
+`npm run test:spectator-admission`, `npm run test:transport` and `npm run test:spectator-host`. Private tests use real localhost HTTP/WebSockets and worker physics with
 ephemeral random test passwords, never production credentials. The desktop/mobile Playwright
 harness is `qa/spectator-browser.mjs`; it writes its report and screenshots to
 `.qa-build/spectator-browser/`. With Playwright and Chromium installed, run
 `node qa/spectator-browser.mjs`. If Playwright is outside this project, set
-`PLAYWRIGHT_MODULE` to its absolute `index.mjs` path. It uses two local browser contexts,
+`PLAYWRIGHT_MODULE` to its absolute `index.mjs` path. It uses separate local browser contexts, including a touch-enabled phone viewport,
 real PeerJS signalling (internet required), and ephemeral credentials. Ports 4100 and 4213
 must be available for browser and hostname checks respectively. The browser harness suppresses
 most draws to keep software WebGL from starving the simulation; it is not a frame-rate benchmark.

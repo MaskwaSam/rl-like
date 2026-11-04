@@ -19,7 +19,9 @@
     "test:transport": "node qa/transport-regression.mjs",
     "test:retry": "node qa/run-retry.mjs",
     "test:private": "node qa/run-private.mjs",
-    "test:spectator-host": "node qa/run-spectator-host.mjs"
+    "test:spectator-host": "node qa/run-spectator-host.mjs",
+    "test:host-startup": "node qa/run-host-startup.mjs",
+    "test:spectator-admission": "node qa/run-spectator-admission.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",

@@ -14,7 +14,7 @@ const hash = `${salt.toString('hex')}:${scryptSync(password, salt, 64).toString(
 const GAME = 'http://127.0.0.1:4100', SPEC = 'http://localhost:4100';
 const server = spawn(process.execPath, ['.server-build/index.js'], { cwd: root, env: { ...process.env, CAR_ORIGIN: GAME, CAR_SPECTATOR_ORIGIN: SPEC, CAR_PASSWORD_HASH: hash, PORT: '4100' }, stdio: ['ignore', 'ignore', 'pipe'] });
 server.stderr.on('data', () => {});
-const report = { scope: 'Built app on localhost; real PeerJS signalling and WebRTC between two Chromium contexts on one Mac; software-rendered WebGL. Not a physical-LAN, multi-device or rendered-performance claim.', checks: [], measurements: {} };
+const report = { scope: 'Built app on localhost; real PeerJS signalling and WebRTC between a host, desktop viewer and touch-enabled viewer on one Mac; software-rendered WebGL. Not a physical-LAN, multi-device or rendered-performance claim.', checks: [], measurements: {} };
 const check = (ok, d) => { if (!ok) throw Error(d); report.checks.push(d); console.log('PASS ' + d); };
 const lowQuality = () => localStorage.setItem('rl-like-settings', JSON.stringify({ graphics: { quality: 0 }, audio: { volume: 0, muted: true } }));
 let browser;
@@ -90,12 +90,31 @@ try {
   const camPos = () => spec.evaluate(() => window.__renderer.camera.position.toArray());
   await shot(spec, '02-broadcast.png');
   check((await view()).mode === 'overview' && (await view()).overview === 'broadcast', 'overview broadcast camera is the default');
+  check(await spec.evaluate(() => {
+    const before = window.__renderer.camera.fov;
+    window.dispatchEvent(new Event('resize'));
+    return Math.abs(window.__renderer.camera.fov - before) < 1e-6;
+  }), 'resize leaves the overview camera projection under overview control');
   await spec.keyboard.press('KeyO'); await spec.waitForTimeout(600);
   check((await view()).overview === 'field', 'O toggles to the full-field overview');
   await shot(spec, '03-full-field.png');
   await spec.keyboard.press('Digit1'); await spec.waitForTimeout(800);
   check((await view()).mode === 'player' && (await view()).followId === 0, '1 follows the first player');
   check(await spec.locator('#specFollow').innerText() === 'Host QA', 'followed player name shown');
+  // The renderer changes aspect first; the active chase camera must retain its horizontal FOV.
+  const horizontalFov = () => spec.evaluate(() => {
+    const c = window.__renderer.camera;
+    return 2 * Math.atan(Math.tan(c.fov * Math.PI / 360) * c.aspect) * 180 / Math.PI;
+  });
+  const chaseFov = await horizontalFov();
+  await spec.setViewportSize({ width: 720, height: 1280 });
+  await spec.waitForFunction(() => window.__renderer.camera.aspect < 1);
+  const portraitFov = await horizontalFov();
+  check(Math.abs(portraitFov - chaseFov) < .1, 'player view preserves horizontal FOV on portrait rotation without reselecting');
+  await spec.setViewportSize({ width: 1280, height: 720 });
+  await spec.waitForFunction(() => window.__renderer.camera.aspect > 1);
+  check(Math.abs(await horizontalFov() - chaseFov) < .1, 'player view preserves horizontal FOV when rotated back to landscape');
+  report.measurements.resizeFov = { landscape: chaseFov, portrait: portraitFov };
   await shot(spec, '04-player-ballcam.png');
   await spec.keyboard.press('KeyB'); await spec.waitForTimeout(600);
   await spec.waitForFunction(() => document.getElementById('camMode').textContent === 'CAR CAM', null, { timeout: 10000 }).catch(() => {});
@@ -124,6 +143,11 @@ try {
   const after = await camPos();
   console.log('free', JSON.stringify(await view()), JSON.stringify(before), JSON.stringify(after), await spec.locator('#fps').innerText(), await host.locator('#fps').innerText().catch(() => '?'));
   check((await view()).mode === 'free' && Math.hypot(after[0] - before[0], after[1] - before[1], after[2] - before[2]) > 5, 'free camera flies with W and Space');
+  check(await spec.evaluate(() => {
+    const before = window.__renderer.camera.fov;
+    window.dispatchEvent(new Event('resize'));
+    return Math.abs(window.__renderer.camera.fov - before) < 1e-6;
+  }), 'resize leaves the free camera projection under free-camera control');
   await shot(spec, '06-free-cam.png');
   await spec.getByRole('button', { name: /Overview/ }).click();
   check((await view()).mode === 'overview', 'Overview button returns to the overview');
@@ -133,15 +157,28 @@ try {
   check(await spec.locator('#specBar').isHidden(), 'H hides the overlay for a clean feed');
   await spec.keyboard.press('KeyH');
 
-  const specPhone = await specCtx.newPage();
-  await specPhone.setViewportSize({ width: 390, height: 780 });
+  const phoneCtx = await browser.newContext({
+    viewport: { width: 390, height: 780 }, hasTouch: true,
+    storageState: await specCtx.storageState(),
+  });
+  await phoneCtx.addInitScript(lowQuality);
+  await phoneCtx.addInitScript(pauseRender);
+  const specPhone = await phoneCtx.newPage();
   await specPhone.goto(`${SPEC}/?spectate&room=${code}`, { waitUntil: 'domcontentloaded' });
   await specPhone.waitForFunction(() => window.__spectator?.ready, null, { timeout: 40000 });
   await host.waitForFunction(() => window.__session.lobby.spectators === 2, null, { timeout: 10000 });
   check(true, 'second spectator (same login, phone viewport) joins mid-match');
   await specPhone.waitForTimeout(800);
   await shot(specPhone, '07-phone.png');
-  await specPhone.close();
+  const phoneView = await specPhone.evaluate(() => window.__view);
+  await specPhone.locator('#specHide').tap();
+  check(await specPhone.locator('#specBar').isHidden(), 'touch Hide removes the spectator bar');
+  const reveal = specPhone.getByRole('button', { name: 'Show controls', exact: true });
+  check(await reveal.isVisible(), 'hidden overlay leaves a visible touch control to restore it');
+  await reveal.tap();
+  check(await specPhone.locator('#specBar').isVisible(), 'touch Show controls restores the spectator bar without a keyboard');
+  check(JSON.stringify(await specPhone.evaluate(() => window.__view)) === JSON.stringify(phoneView), 'restoring controls preserves the current camera view');
+  await specPhone.locator('#specHide').tap();
 
   await spec.keyboard.press('Slash');
   await spec.keyboard.press('KeyH');
@@ -149,6 +186,8 @@ try {
   await host.evaluate(() => window.__menu.onEndMatch());
   await spec.waitForFunction(() => !window.__spectator.ready && !document.getElementById('specWait').hidden, null, { timeout: 10000 });
   check(true, 'spectator returns to waiting when the host ends the match');
+  await specPhone.waitForFunction(() => !window.__spectator.ready && !document.getElementById('specWait').hidden, null, { timeout: 10000 });
+  check(await reveal.isHidden(), 'touch reveal control disappears when the host ends the match');
   check(await spec.evaluate(() => !document.body.classList.contains('ui-hidden') && document.getElementById('specHelp').hidden), 'match end resets hidden overlay and help');
   await host.evaluate(() => window.__menu.onStartMatch());
   await spec.waitForFunction(() => window.__spectator?.ready && window.__spectator.game.phase === 'countdown' && document.getElementById('banner').style.display === 'block', null, { timeout: 15000 });
@@ -156,6 +195,10 @@ try {
   await host.evaluate(() => window.__session.leave());
   await spec.waitForFunction(() => !window.__spectator && !document.getElementById('specJoin').hidden, null, { timeout: 15000 });
   check((await spec.locator('#specStatus').innerText()).length > 0, 'host departure returns the spectator to the code screen with a reason');
+  await specPhone.waitForFunction(() => !window.__spectator && !document.getElementById('specJoin').hidden, null, { timeout: 15000 });
+  check(await reveal.isHidden(), 'touch reveal control stays hidden after host departure');
+  await phoneCtx.close();
+  check(!(report.pageErrors?.length), 'browser run has no uncaught page errors');
   report.passed = report.checks.length;
 } catch (err) {
   for (const p of browser?.contexts().flatMap(c => c.pages()) ?? []) {
