@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dedicated server performance work counts</title>
+<style>
+body{font-family:var(--font-sans,system-ui);color:var(--foreground);margin:0;line-height:1.4}
+h2{font-size:18px;margin:0 0 6px}p{font-size:13px;color:var(--muted-foreground);margin:0 0 18px}
+.legend{display:flex;gap:18px;font-size:12px;margin-bottom:16px}.dot{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+.before{background:var(--chart-2)}.after{background:var(--chart-1)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px 28px}
+.label{font-size:13px;margin-bottom:8px}.label span{display:block;font-size:11px;color:var(--muted-foreground)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:8px;align-items:center;margin:5px 0}
+.track{height:18px;background:var(--secondary);border-radius:3px;overflow:hidden}.bar{height:18px;border-radius:3px}
+.value{font:12px var(--font-mono,monospace)}.foot{margin:18px 0 0;font-size:11px}
+@media(max-width:480px){.grid{grid-template-columns:1fr;gap:16px}}
+</style>
+<h2>Less repeated network work</h2>
+<p>Deterministic baseline comparisons. Counts measure work performed, not FPS or latency gains.</p>
+<div class="legend"><span><i class="dot before"></i>Before</span><span><i class="dot after"></i>Optimized</span></div>
+<div class="grid">
+<div role="img" aria-label="Input encodes at 120 simulated frames per second over two seconds: before 240, optimized 159">
+<div class="label">Client input encodes · 120 FPS<span>Two simulated seconds</span></div>
+<div class="row"><div class="track"><div class="bar before" style="width:100%"></div></div><span class="value">240</span></div>
+<div class="row"><div class="track"><div class="bar after" style="width:66.25%"></div></div><span class="value">159</span></div></div>
+<div role="img" aria-label="Input encodes at 240 simulated frames per second over two seconds: before 479, optimized 161">
+<div class="label">Client input encodes · 240 FPS<span>Two simulated seconds</span></div>
+<div class="row"><div class="track"><div class="bar before" style="width:100%"></div></div><span class="value">479</span></div>
+<div class="row"><div class="track"><div class="bar after" style="width:33.612%"></div></div><span class="value">161</span></div></div>
+<div role="img" aria-label="State captures in one twelve-tick catch-up: before 6, optimized 1">
+<div class="label">Server state captures<span>One 12-tick catch-up</span></div>
+<div class="row"><div class="track"><div class="bar before" style="width:100%"></div></div><span class="value">6</span></div>
+<div class="row"><div class="track"><div class="bar after" style="width:16.667%"></div></div><span class="value">1</span></div></div>
+<div role="img" aria-label="Snapshot encodes in one twelve-tick catch-up for two players: before 12, optimized 2">
+<div class="label">Server snapshot encodes<span>One 12-tick catch-up · two players</span></div>
+<div class="row"><div class="track"><div class="bar before" style="width:100%"></div></div><span class="value">12</span></div>
+<div class="row"><div class="track"><div class="bar after" style="width:16.667%"></div></div><span class="value">2</span></div></div>
+</div>
+<p class="foot">Each pair has its own zero-based scale. Baseline: 0998166. Client packet bytes and simulated send timestamps match; 566 game and Rapier-state comparisons match. Normal server cadence remains unchanged.</p>
+</html>

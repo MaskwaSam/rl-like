@@ -67,6 +67,20 @@ Old match epochs are dropped. Tick windows, signed axes and defined controller f
 clients submit inputs only. Controls go neutral after 250ms without current input. Heartbeats
 and reconnects are bounded. No tokens, cookies, passwords or player names are logged.
 
+Server clients check socket readiness before preparing their input history; the final send
+still enforces the existing 60 Hz input cap and 64 KiB buffer limit. The main process copies
+incoming bytes into an owned payload and transfers that allocation to the room worker,
+avoiding another structured-clone copy without detaching a pooled WebSocket Buffer.
+Initial and replacement sockets wait for the server's welcome before sending gameplay
+inputs or pings, so a reconnect cannot race worker admission. Input preparation has 1 ms of
+headroom near a pacing deadline; the final send gate still rejects early packets.
+
+The authority runs every required 120 Hz physics step, then emits at most one current
+snapshot per advance if a 60 Hz snapshot boundary was crossed. This avoids serializing
+intermediate catch-up states that would be superseded in the output queue. With no connected
+players it skips snapshot serialization. The `snapshots` metric counts emitted snapshot
+batches, not crossed tick boundaries or per-player packets.
+
 `/healthz` is a basic public health check. `/game/metrics` requires password access and returns
 aggregate room/connection counts and simulation counters, without invite/player identifiers.
 Hashed assets cache privately after admission; the small gate entry caches publicly. HTML and
@@ -76,9 +90,12 @@ must be reviewed for the invite flow before rollout; do not assume existing inje
 ## Verification and deployment boundary
 
 Run `npm run build`, `npm run server:build`, `npm run test:headless`, `npm run test:modes`,
-`npm run test:private`, `npm run test:spectators`, `npm run test:host-startup`,
+`npm run test:server`, `npm run test:spectators`, `npm run test:host-startup`,
 `npm run test:spectator-admission`, `npm run test:transport` and `npm run test:spectator-host`. Private tests use real localhost HTTP/WebSockets and worker physics with
-ephemeral random test passwords, never production credentials. The desktop/mobile Playwright
+ephemeral random test passwords, never production credentials. `test:server` includes private
+room coverage, deterministic baseline comparisons, real worker queue checks, and actual
+headless player sessions over localhost WebSockets. These are not a physical LAN latency
+benchmark or a production server capacity measurement. The desktop/mobile Playwright
 harness is `qa/spectator-browser.mjs`; it writes its report and screenshots to
 `.qa-build/spectator-browser/`. With Playwright and Chromium installed, run
 `node qa/spectator-browser.mjs`. If Playwright is outside this project, set

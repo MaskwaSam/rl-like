@@ -1,0 +1,20 @@
+{
+  "baseline": "0998166fba124cb4ea3fea87ecde2aa3c14ac0a0",
+  "source_review_head": "80b2407",
+  "admission_fix_head": "8fa6a96",
+  "measurement_type": "deterministic operation counts, not CPU time or physical network latency",
+  "client_input_preparation": [
+    { "simulated_fps": 120, "seconds": 2, "baseline_encodes": 240, "optimized_encodes": 159, "input_packets_each_version": 82, "prediction_ticks_each_version": 240 },
+    { "simulated_fps": 240, "seconds": 2, "baseline_encodes": 479, "optimized_encodes": 161, "input_packets_each_version": 106, "prediction_ticks_each_version": 240 }
+  ],
+  "blocked_input_preparation": { "baseline_encodes": 41, "optimized_encodes": 0 },
+  "authority_catchup": [
+    { "ticks": 4, "connected_players": 2, "baseline_captures": 2, "optimized_captures": 1, "baseline_encodes": 4, "optimized_encodes": 2 },
+    { "ticks": 6, "connected_players": 2, "baseline_captures": 3, "optimized_captures": 1, "baseline_encodes": 6, "optimized_encodes": 2 },
+    { "ticks": 12, "connected_players": 2, "baseline_captures": 6, "optimized_captures": 1, "baseline_encodes": 12, "optimized_encodes": 2 }
+  ],
+  "authority_differential": { "advances": 565, "physics_ticks": 699, "exact_game_and_rapier_state_comparisons": 566, "baseline_tick_input_maps": 699, "optimized_tick_input_maps": 1 },
+  "worker_queue_checks": 10,
+  "private_room_checks": 95,
+  "actual_player_session_checks": { "1v1": 17, "4v4": 17 }
+}

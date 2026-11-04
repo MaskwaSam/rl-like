@@ -37,6 +37,8 @@ jobs:
         run: npm run test:retry
       - name: Run session regression
         run: npm run test:sessions
+      - name: Run dedicated server and player session regressions
+        run: npm run test:server
       - name: Run LAN performance regressions
         run: npm run test:lan
       - name: Run allocation and render update regressions
