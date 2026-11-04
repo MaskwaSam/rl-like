@@ -289,7 +289,7 @@ export class HostSession implements Session {
   // ---------------------------------------------------------------------------
 
   async startMatch(): Promise<void> {
-    if (this.inMatch || this.starting) return;
+    if (this.ended || this.inMatch || this.starting) return;
     this.starting = true;
     const config: GameConfig = {
       infiniteBoost: false,
@@ -298,28 +298,34 @@ export class HostSession implements Session {
       arena: normalizeArena(this.settings.arena),
       seed: (Math.random() * 0xffffffff) >>> 0 || 1,
     };
-    const game = await Game.create(config);
-    if (this.ended) {
-      game.destroy();
+    // Keep the candidate private until setup succeeds; a failed start must leave the lobby
+    // and any previous game intact, and release the lock so the host can retry.
+    let candidate: Game | null = null;
+    try {
+      candidate = await Game.create(config);
+      if (this.ended) return;
+      candidate.setDodgeDeadzone(0, this.hostDodgeDeadzone);
+      candidate.addCar(0, this.hostTeam);
+      for (const c of this.clients.values()) {
+        candidate.setDodgeDeadzone(c.slot, c.dodgeDeadzone);
+        candidate.addCar(c.slot, c.team);
+      }
+      // Cars were placed as they were added; a proper kickoff lines everyone up together.
+      candidate.resetKickoff();
+      this.game?.destroy();
+      this.game = candidate;
+      candidate = null; // ownership has transferred to the session
+      this.config = config;
+      this.inMatch = true;
+      this.accumulator = 0;
+      for (const c of this.clients.values()) {
+        c.inputs.clear();
+        c.lastInputTick = -1;
+      }
+    } finally {
       this.starting = false;
-      return;
+      candidate?.destroy();
     }
-    game.setDodgeDeadzone(0, this.hostDodgeDeadzone);
-    game.addCar(0, this.hostTeam);
-    for (const c of this.clients.values()) {
-      game.setDodgeDeadzone(c.slot, c.dodgeDeadzone);
-      game.addCar(c.slot, c.team);
-      c.inputs.clear();
-      c.lastInputTick = -1;
-    }
-    // Cars were placed as they were added; a proper kickoff lines everyone up together.
-    game.resetKickoff();
-    this.game?.destroy();
-    this.game = game;
-    this.config = config;
-    this.inMatch = true;
-    this.starting = false;
-    this.accumulator = 0;
     for (const c of this.clients.values()) c.link.sendCtrl({ t: 'start', config });
     this.spectatorEpoch++;
     for (const link of this.spectators) link.sendCtrl({ t: 'start', config, epoch: this.spectatorEpoch });
