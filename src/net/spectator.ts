@@ -16,6 +16,7 @@ import { DEFAULT_MATCH_SETTINGS, PROTOCOL_VERSION, Packet, clampBody, encodePing
 import { joinRoom } from './transport';
 import type { GameLink } from './channel';
 import { liveCarState, type CarRenderState } from './session';
+import { createSpectatorAdmission } from '../../qa/spectator-admission';
 
 /** Never extrapolate further than this past the newest snapshot (a stalled host freezes, it does not fly off). */
 const MAX_EXTRAPOLATE_TICKS = 18;
@@ -92,18 +93,14 @@ export class SpectatorSession {
 
   static async createOnLink(link: GameLink, code: string, peer: Peer | null = null, timeoutMs = 10000): Promise<SpectatorSession> {
     const session = new SpectatorSession(peer, link, code);
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        session.leave();
-        reject(new Error('The host did not answer. It may need to reload to the latest version to allow spectators.'));
-      }, timeoutMs);
-      session.admitted = (err) => {
-        clearTimeout(timer);
-        if (err) reject(new Error(err));
-        else resolve();
-      };
+    const admission = createSpectatorAdmission(timeoutMs, () => session.leave());
+    session.admitted = admission.settle;
+    try {
       link.sendCtrl({ t: 'spectate', version: PROTOCOL_VERSION });
-    });
+    } catch (err) {
+      session.end(`Connection error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    await admission.promise;
     return session;
   }
 
@@ -377,6 +374,8 @@ export class SpectatorSession {
   private end(reason: string): void {
     if (this.ended) return;
     this.ended = true;
+    this.admitted?.(reason);
+    this.admitted = null;
     this.inMatch = false;
     this.synced = false;
     this.link.close();
