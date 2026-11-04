@@ -1,6 +1,6 @@
 # Bounded spectator release tooling
 
-These tools are for the next LAN optimization release atop the already-configured
+These tools are for the dedicated-server performance release atop the already-configured
 spectator deployment. They do not connect,
 copy to a server, request secrets, change DNS/provider settings, or install remote
 npm dependencies. The operator is a Linux-host program; do not execute its actions
@@ -9,10 +9,10 @@ independent review, packaging/staging, activation, and public/device acceptance.
 Do not use this operator for initial spectator setup or older rollback records.
 The accepted live baseline supplied by the parent is:
 
-- Release: `20261104-spectator-8c9a197033bc`
-- Source: `8c9a197033bc5581738347beea2dbb60911431fc`
-- Image: `sha256:41b3fe3554c10515b739d76f00357fb088485a2ec153cdfc690480e4dbfddcf4`
-- `.env` SHA-256: `46224dfc43086a278ec0ded6252ffc7ab8022297c6966e18596baf36ef11f920`
+- Release: `20261104-spectator-0c08548aa55b`
+- Source: `0c08548aa55b1f0436d40116067e3f96dd3f3dcc`
+- Image: `sha256:4ed93221ba65e03b0971cd9090d46e8a42e91cb8b7b69cbac4cc159c3c0a2a35`
+- `.env` SHA-256: `f52910ddc7424ee7ba9cc99b87ee405e63dde8d50606b5f754ebf1bcae567e3d`
 - Compose SHA-256: `797e82d12efebcb4bd668654794ab5acb101f1e58f12263a116ebbb35ee098d8`
 
 The older overlay `BASE_TAG`/`BASE_ID` remain unchanged; they identify the
@@ -21,7 +21,7 @@ accepted dependency/runtime layers, separately from the current live baseline.
 ## Freeze and package locally
 
 Commit the reviewed integration and these **four** files first. Freeze the exact
-new 40-character HEAD atop `ee2b0a1f772b4b0592196d82ba85f12713fc22a6`;
+new 40-character HEAD atop `ba12efceca3a7377a48d208ac13ceea67a3e3b63`;
 do not use the parent SHA after committing the tools. From the
 repository, with existing local npm dependencies:
 
@@ -45,10 +45,10 @@ inventory are checked. `dist/` and `.server-build/` alone are cleared and freshl
 built locally. Build commands are the existing `npm run build` and
 `npm run server:build`; the operator does no npm install/build. The source allowlist
 is an explicit list of the
-`8c9a197033bc5581738347beea2dbb60911431fc`-to-`ee2b0a1` paths plus these four
+`0c08548aa55b1f0436d40116067e3f96dd3f3dcc`-to-`ba12efc` paths plus these four
 owned files.
 Any extra/missing changed path fails packaging. The dependency lock and dependency
-declarations must match `8c9a197033bc5581738347beea2dbb60911431fc`.
+declarations must match `0c08548aa55b1f0436d40116067e3f96dd3f3dcc`.
 `public/turn.json` remains opaque: bind it through the supplied size/SHA-256 and
 unchanged git blob identity; never print or parse relay credentials. Normal builds
 copy that existing public asset unchanged.
@@ -98,7 +98,7 @@ are immutable and no drift exceptions are supported.
 
 Activation consumes an exclusive rollback directory before writing. It backs up
 both originals and records both old/new hash pairs durably first. Its only content
-change is `CAR_RELEASE=20261104-spectator-8c9a197033bc` to the new release.
+change is `CAR_RELEASE=20261104-spectator-0c08548aa55b` to the new release.
 Compose is retained byte-for-byte, after validating exactly one existing spectator
 origin line and exactly one expected game origin line (both exact LF lines):
 

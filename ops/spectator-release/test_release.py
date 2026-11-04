@@ -18,6 +18,14 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 class ReleaseTests(unittest.TestCase):
+    def test_packager_and_operator_baselines_agree(self):
+        package_spec = importlib.util.spec_from_file_location('release_package', Path(__file__).with_name('package.py'))
+        package = importlib.util.module_from_spec(package_spec)
+        package_spec.loader.exec_module(package)
+        self.assertEqual(package.BASELINE_SOURCE_COMMIT, op.BASELINE_SOURCE_COMMIT)
+        self.assertEqual(package.BASE_TAG, op.BASE_TAG)
+        self.assertEqual(op.BASELINE_RELEASE, '20261104-spectator-' + op.BASELINE_SOURCE_COMMIT[:12])
+
     def setUp(self):
         # This macOS Python lacks Linux xattrs. Model them explicitly in tests;
         # production operator still requires Linux xattr support and fails closed.

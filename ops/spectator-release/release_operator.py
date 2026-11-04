@@ -23,11 +23,11 @@ import time
 ROOT = Path('/home/sam/services/car-soccer')
 BASE_TAG = 'car-soccer-private:20261003T224415Z-9bd5cb33108a-8cb0e27bcd04'
 BASE_ID = 'sha256:437a58fabdbc431d6b6a8f83f80145caa3431472a2b4df5be5677998b5ef0ce9'
-BASELINE_RELEASE = '20261104-spectator-8c9a197033bc'
-EXPECTED_CONFIG = {'env_sha256': '46224dfc43086a278ec0ded6252ffc7ab8022297c6966e18596baf36ef11f920', 'compose_sha256': '797e82d12efebcb4bd668654794ab5acb101f1e58f12263a116ebbb35ee098d8'}
+BASELINE_RELEASE = '20261104-spectator-0c08548aa55b'
+EXPECTED_CONFIG = {'env_sha256': 'f52910ddc7424ee7ba9cc99b87ee405e63dde8d50606b5f754ebf1bcae567e3d', 'compose_sha256': '797e82d12efebcb4bd668654794ab5acb101f1e58f12263a116ebbb35ee098d8'}
 BASELINE_TAG = 'car-soccer-private:' + BASELINE_RELEASE
-BASELINE_IMAGE_ID = 'sha256:41b3fe3554c10515b739d76f00357fb088485a2ec153cdfc690480e4dbfddcf4'
-BASELINE_SOURCE_COMMIT = '8c9a197033bc5581738347beea2dbb60911431fc'
+BASELINE_IMAGE_ID = 'sha256:4ed93221ba65e03b0971cd9090d46e8a42e91cb8b7b69cbac4cc159c3c0a2a35'
+BASELINE_SOURCE_COMMIT = '0c08548aa55b1f0436d40116067e3f96dd3f3dcc'
 COMPOSE = ['docker', 'compose', '--project-name', 'car-soccer', '--env-file', str(ROOT / '.env'), '-f', str(ROOT / 'compose.yaml')]
 
 
