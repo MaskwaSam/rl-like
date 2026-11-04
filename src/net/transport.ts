@@ -225,8 +225,9 @@ export interface TrafficDiagnostics {
   fastStallRecoveries: number;
 }
 
-/** Retire a fast channel whose queued bytes stop progressing for this long. */
+/** Require sampled queue nonprogress, excluding event-loop scheduling pauses. */
 const FAST_STALL_TIMEOUT_MS = 250;
+const FAST_WATCHDOG_INTERVAL_MS = 50;
 
 /** One connection to a remote peer: a reliable JSON channel and (once set up) a fast binary one. */
 export class Link {
@@ -242,7 +243,9 @@ export class Link {
   private sendErrors = 0;
   private fastStallRecoveries = 0;
   private fastBufferedBytes = 0;
-  private fastProgressAt = 0;
+  private fastSampleAt: number | null = null;
+  private fastStalledMs = 0;
+  private fastWatchdog: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     readonly conn: DataConnection,
@@ -330,7 +333,48 @@ export class Link {
 
   private resetFastProgress(): void {
     this.fastBufferedBytes = 0;
-    this.fastProgressAt = 0;
+    this.fastSampleAt = null;
+    this.fastStalledMs = 0;
+    if (this.fastWatchdog !== null) clearTimeout(this.fastWatchdog);
+    this.fastWatchdog = null;
+  }
+
+  private watchFastProgress(ch: RTCDataChannel): void {
+    // Sends in one JS task cannot observe browser drain. Only this timer confirms
+    // nonprogress across turns; keep one pending timer rather than one per packet.
+    if (this.fastWatchdog !== null) return;
+    const timer = setTimeout(() => {
+      if (this.fastWatchdog !== timer || this.closed || this.fast !== ch) return;
+      this.fastWatchdog = null;
+      const buffered = ch.bufferedAmount;
+      if (ch.readyState !== 'open' || buffered === 0) {
+        this.resetFastProgress();
+        return;
+      }
+      const now = performance.now();
+      if (this.fastSampleAt === null || buffered < this.fastBufferedBytes || now - this.fastSampleAt > FAST_STALL_TIMEOUT_MS) {
+        this.fastStalledMs = 0;
+      } else {
+        // A suspended tab or a long task is not evidence of a stalled network.
+        // Count at most one sampling interval, even if this callback ran late.
+        this.fastStalledMs += Math.min(now - this.fastSampleAt, FAST_WATCHDOG_INTERVAL_MS);
+      }
+      this.fastSampleAt = now;
+      this.fastBufferedBytes = buffered;
+      if (this.fastStalledMs >= FAST_STALL_TIMEOUT_MS) {
+        this.fast = null;
+        this.resetFastProgress();
+        this.fastStallRecoveries++;
+        try {
+          ch.close();
+        } catch {
+          /* retired locally even if browser close fails */
+        }
+        return;
+      }
+      this.watchFastProgress(ch);
+    }, FAST_WATCHDOG_INTERVAL_MS);
+    this.fastWatchdog = timer;
   }
 
   private adoptFast(ch: RTCDataChannel): void {
@@ -378,37 +422,26 @@ export class Link {
     }
     const fast = this.fast;
     if (fast && fast.readyState === 'open') {
-      // Brief congestion drops stale traffic. If bytes stop draining for long
-      // enough, retire only this channel and submit the current packet via fallback.
-      const buffered = fast.bufferedAmount;
-      const now = performance.now();
-      if (buffered > 0) {
-        if (this.fastBufferedBytes === 0 || buffered < this.fastBufferedBytes) this.fastProgressAt = now;
-        this.fastBufferedBytes = buffered;
-        if (now - this.fastProgressAt < FAST_STALL_TIMEOUT_MS) {
-          this.droppedBackpressure++;
-          return;
-        }
-        this.fast = null;
-        this.resetFastProgress();
-        this.fastStallRecoveries++;
-        try {
-          fast.close();
-        } catch {
-          /* retired locally even if browser close fails */
-        }
-      } else {
-        this.resetFastProgress();
-        try {
-          fast.send(buf);
-          this.fastSubmitted++;
-          this.fastBufferedBytes = fast.bufferedAmount;
-          this.fastProgressAt = now;
-          return;
-        } catch {
-          this.sendErrors++;
-          // A channel can close between checking readyState and send; try fallback.
-        }
+      // Brief congestion drops stale traffic. Retirement requires independent
+      // watchdog samples; elapsed time between sends alone cannot prove a stall.
+      if (fast.bufferedAmount > 0) {
+        this.watchFastProgress(fast);
+        this.droppedBackpressure++;
+        return;
+      }
+      // An observed drain also invalidates prior samples, without restarting the
+      // pending timer on every frame. The next callback samples the new queue.
+      this.fastBufferedBytes = 0;
+      this.fastSampleAt = null;
+      this.fastStalledMs = 0;
+      try {
+        fast.send(buf);
+        this.fastSubmitted++;
+        if (fast.bufferedAmount > 0) this.watchFastProgress(fast);
+        return;
+      } catch {
+        this.sendErrors++;
+        // A channel can close between checking readyState and send; try fallback.
       }
     } else {
       this.resetFastProgress();

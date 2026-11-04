@@ -9,7 +9,32 @@ import { build } from 'vite';
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = await mkdtemp(join(tmpdir(), 'car-transport-test-'));
 const originalNow = Object.getOwnPropertyDescriptor(performance, 'now');
+const originalSetTimeout = globalThis.setTimeout;
+const originalClearTimeout = globalThis.clearTimeout;
 let now = 0;
+let nextTimer = 0;
+const timers = new Map();
+let scheduledTimers = 0;
+function installClock() {
+  globalThis.setTimeout = (callback, delay) => {
+    const id = ++nextTimer;
+    scheduledTimers++;
+    timers.set(id, { callback, due: now + delay });
+    return id;
+  };
+  globalThis.clearTimeout = id => timers.delete(id);
+}
+// Advance wall time and run only callbacks eligible at this turn's start.
+// Advancing `now` directly models a long task with no event-loop opportunity.
+function turn(elapsed = 50) {
+  now += elapsed;
+  const eligible = [...timers].filter(([, timer]) => timer.due <= now);
+  for (const [id, timer] of eligible) {
+    if (!timers.delete(id)) continue;
+    timer.callback();
+  }
+}
+function confirmStall() { for (let i = 0; i < 6; i++) turn(); }
 Object.defineProperty(performance, 'now', { configurable: true, value: () => now });
 try {
   await build({
@@ -27,6 +52,8 @@ try {
     ssr: { noExternal: ['peerjs'] },
   });
   const { Link } = await import(pathToFileURL(join(outDir, 'transport.mjs')));
+  installClock();
+  const links = [];
   const packet = new ArrayBuffer(32);
   function channel() {
     return {
@@ -52,6 +79,7 @@ try {
   }
   function fastLink() {
     const conn = connection(), link = new Link(conn, true), fast = channel();
+    links.push(link);
     link.start(); // Exercise the real host handshake/listener without private member access.
     assert.equal(JSON.parse(conn.sent[0]).t, 'fastready');
     conn.sent.length = 0; conn.dataChannel.bufferedAmount = 0;
@@ -134,7 +162,9 @@ try {
     assert.equal(link.fastOpen, true, 'short stall keeps fast channel');
     assert.equal(conn.sent.length, 0, 'short stall does not spill onto reliable');
     const fresh = new ArrayBuffer(34);
-    now = 251; link.sendFast(fresh);
+    now = 251;
+    assert.equal(link.fastOpen, true, 'same-task elapsed time is not stall evidence');
+    confirmStall(); link.sendFast(fresh);
     assert.equal(fast.readyState, 'closed', 'stuck channel retires after threshold');
     assert.equal(conn.open, true, 'retirement preserves reliable connection');
     assert.deepEqual(fast.sent, [packet], 'obsolete traffic is never resubmitted');
@@ -153,18 +183,20 @@ try {
     now = 1000;
     const { conn, link, fast } = fastLink();
     link.sendFast(packet);
-    now = 1200; fast.bufferedAmount = 16; link.sendFast(packet);
-    now = 1400; link.sendFast(packet);
+    turn(); turn(200);
+    fast.bufferedAmount = 16; turn();
+    for (let i = 0; i < 4; i++) turn();
+    link.sendFast(packet);
     assert.equal(link.fastOpen, true, 'partial progress restarts stall interval');
     assert.equal(conn.sent.length, 0);
     fast.bufferedAmount = 0; link.sendFast(packet);
-    now = 1600; link.sendFast(packet);
+    turn(200); link.sendFast(packet);
     assert.equal(link.fastOpen, true, 'full drain restarts stall interval');
     fast.close();
     const replacement = channel();
     conn.peerConnection.ondatachannel({ channel: replacement });
-    now = 1800; link.sendFast(packet);
-    now = 2000; link.sendFast(packet);
+    turn(200); link.sendFast(packet);
+    turn(200); link.sendFast(packet);
     assert.equal(link.fastOpen, true, 'channel switch resets prior stall interval');
     assert.equal(link.trafficDiagnostics.fastStallRecoveries, 0);
   }
@@ -173,7 +205,7 @@ try {
     const { conn, link, fast } = fastLink();
     link.sendFast(packet);
     conn.bufferSize = 1;
-    now = 3251; link.sendFast(packet);
+    confirmStall(); link.sendFast(packet);
     assert.equal(fast.readyState, 'closed');
     assert.equal(conn.sent.length, 0, 'retirement still honors PeerJS backlog');
     conn.bufferSize = 0; conn.dataChannel.bufferedAmount = 1;
@@ -182,6 +214,97 @@ try {
     conn.dataChannel.bufferedAmount = 0;
     const fresh = new ArrayBuffer(36); link.sendFast(fresh);
     assert.deepEqual(conn.sent, [fresh], 'queue drain admits only newest packet');
+  }
+  for (const link of links) link.close();
+  assert.equal(timers.size, 0, 'prior scenarios release watchdog timers on close');
+  {
+    now = 0;
+    const { link, fast, conn } = fastLink();
+    const scheduledBefore = scheduledTimers;
+    link.sendFast(packet);
+    now += 1000;
+    for (let i = 0; i < 1000; i++) link.sendFast(packet);
+    assert.equal(link.fastOpen, true, 'long same-task sends cannot retire a channel');
+    assert.equal(scheduledTimers - scheduledBefore, 1, 'same-task sends share one timer');
+    fast.bufferedAmount = 0;
+    turn();
+    assert.equal(timers.size, 0, 'drain stops the monitor');
+    assert.equal(link.trafficDiagnostics.fastStallRecoveries, 0);
+    assert.equal(conn.sent.length, 0);
+    link.close();
+  }
+  {
+    now = 0;
+    const { link, fast } = fastLink();
+    const scheduledBefore = scheduledTimers;
+    link.sendFast(packet);
+    for (let i = 0; i < 3; i++) {
+      fast.bufferedAmount = 0;
+      turn(16);
+      link.sendFast(packet);
+    }
+    assert.equal(scheduledTimers - scheduledBefore, 1, 'drain and refill across frames reuse pending timer');
+    fast.bufferedAmount = 0;
+    turn();
+    assert.equal(timers.size, 0);
+    link.close();
+  }
+  {
+    now = 0;
+    const { link, fast } = fastLink();
+    for (let i = 0; i < 8; i++) {
+      link.sendFast(packet); // A sparse ping queues bytes synchronously.
+      fast.bufferedAmount = 0;
+      turn(1000);
+      assert.equal(link.fastOpen, true, 'sparse pings that drain retain fast transport');
+      assert.equal(timers.size, 0);
+    }
+    assert.equal(link.trafficDiagnostics.fastSubmitted, 8);
+    link.close();
+  }
+  {
+    now = 0;
+    const { link, fast } = fastLink();
+    link.sendFast(packet);
+    turn(); // First independent baseline.
+    for (let i = 0; i < 4; i++) turn(); // One sample short of retirement.
+    turn(5000); // A long scheduling pause invalidates prior confirmation.
+    assert.equal(link.fastOpen, true, 'scheduling pause invalidates even near-expired confirmation');
+    fast.bufferedAmount = 16;
+    turn(); // Partial drain resets accumulated nonprogress.
+    for (let i = 0; i < 4; i++) turn();
+    assert.equal(link.fastOpen, true, 'partial progress grants a full new interval');
+    fast.bufferedAmount = 0;
+    turn();
+    assert.equal(link.fastOpen, true, 'delayed full drain prevents retirement');
+    assert.equal(timers.size, 0);
+    link.sendFast(packet);
+    confirmStall();
+    assert.equal(link.trafficDiagnostics.fastStallRecoveries, 1, 'persistent sampled congestion still retires');
+    assert.equal(timers.size, 0, 'retirement stops monitoring');
+    link.close();
+  }
+  {
+    now = 0;
+    const { link, conn, fast } = fastLink();
+    link.sendFast(packet);
+    const oldCallback = [...timers.values()][0].callback;
+    const replacement = channel();
+    conn.peerConnection.ondatachannel({ channel: replacement });
+    link.sendFast(packet);
+    const replacementCallback = [...timers.values()][0].callback;
+    oldCallback();
+    assert.equal(link.fastOpen, true, 'canceled old callback cannot retire replacement');
+    assert.equal(timers.size, 1, 'old callback cannot disturb replacement timer');
+    fast.onclose(); fast.onerror();
+    assert.equal(link.fastOpen, true, 'old channel events cannot clear replacement');
+    link.close();
+    assert.equal(timers.size, 0, 'shutdown cancels pending monitor');
+    replacementCallback(); oldCallback();
+    turn(5000);
+    assert.equal(link.fastOpen, false, 'late timer callbacks cannot revive terminal link');
+    assert.equal(link.trafficDiagnostics.fastStallRecoveries, 0);
+    assert.equal(timers.size, 0, 'late callbacks cannot schedule another monitor');
   }
   for (const terminal of ['disconnected', 'failed', 'closed', 'error', 'close', 'explicit']) {
     const { conn, link, fast } = fastLink();
@@ -267,8 +390,11 @@ try {
     assert.equal(fast.closeCalls, 1);
     assert.equal(closed, 1, 'close failures do not suppress or duplicate notification');
   }
-  console.log('Transport regression: 17 scenarios passed (queue bounds, stall recovery, fallback, terminal lifecycle, late dispatch, paired closure, close failures).');
+  assert.equal(timers.size, 0, 'suite leaves no watchdog timers');
+  console.log('Transport regression: 22 scenarios passed (queue bounds, stall recovery, fallback, terminal lifecycle, late dispatch, paired closure, close failures).');
 } finally {
+  globalThis.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = originalClearTimeout;
   if (originalNow) Object.defineProperty(performance, 'now', originalNow);
   else delete performance.now;
   await rm(outDir, { recursive: true, force: true });
