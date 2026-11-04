@@ -1,0 +1,401 @@
+{
+  "recordedAtUtc": "2026-11-04T20:05:24.316329+00:00",
+  "runtimeCommit": "b85846afd05e1016ff178d9aca3c4ffc3b973b3f",
+  "visualBaseline": "29cebbaf055d7e8bdd010c0e975a31afad19c527",
+  "runtimeSha256": {
+    "src/render/renderer.ts": "d9d5139edc7fd994a6b839a473e807ae8644ac4bdffd562eb654cfc96af500e2",
+    "src/render/effects.ts": "a773cd0fdb3889eddca9df61d499552ac14675f85372819b1d4872fc8269006b"
+  },
+  "browser": "T3 shared browser: Chromium 152.0.7977.169 / Electron 44.10.0 on macOS",
+  "scope": "Actual WebGL renders, fixed inputs/camera/time/seed; historical renderer and effects, shared other dependencies. Selected frames only, not live network gameplay, full animation recording, FPS, GC or physical device acceptance.",
+  "visualCases": [
+    {
+      "name": "day-high-shadows",
+      "quality": 2,
+      "arena": 0,
+      "view": "close",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "8119c784fcaba62a8e4a62897e41d8db8e06a12317dc5b4a5fc285889828dddd",
+        "candidate": "8119c784fcaba62a8e4a62897e41d8db8e06a12317dc5b4a5fc285889828dddd"
+      }
+    },
+    {
+      "name": "day-low-broadcast",
+      "quality": 0,
+      "arena": 0,
+      "view": "broadcast",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "0c0642eaf7aa42686542156ce99ebc484a47edb7b51a1467762b0d6352a4150c",
+        "candidate": "0c0642eaf7aa42686542156ce99ebc484a47edb7b51a1467762b0d6352a4150c"
+      }
+    },
+    {
+      "name": "day-medium-trails",
+      "quality": 1,
+      "arena": 0,
+      "view": "close",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "831b3017a63bb79f5c380d790fef75eeeef4094ba28b9f85bc2e00aec56f268e",
+        "candidate": "831b3017a63bb79f5c380d790fef75eeeef4094ba28b9f85bc2e00aec56f268e"
+      }
+    },
+    {
+      "name": "demolition",
+      "quality": 1,
+      "arena": 1,
+      "view": "close",
+      "event": "demo",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "961ce35ab981c9c20f0ab04c55c2bf4da96ccfae3750cb62475115243dbecdd0",
+        "candidate": "961ce35ab981c9c20f0ab04c55c2bf4da96ccfae3750cb62475115243dbecdd0"
+      }
+    },
+    {
+      "name": "follow-hidden-name",
+      "quality": 1,
+      "arena": 0,
+      "view": "close",
+      "event": "follow",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "2f01b326bc09d53cf516ceb1ec5144288d8de91154bd059dcdd747afda1e55bd",
+        "candidate": "2f01b326bc09d53cf516ceb1ec5144288d8de91154bd059dcdd747afda1e55bd"
+      }
+    },
+    {
+      "name": "goal-explosion",
+      "quality": 1,
+      "arena": 1,
+      "view": "close",
+      "event": "goal",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "d31e3fde61da01fb29e662bbb9770a7f4474af01ba3bb9f1ac0a530aa2d1865f",
+        "candidate": "d31e3fde61da01fb29e662bbb9770a7f4474af01ba3bb9f1ac0a530aa2d1865f"
+      }
+    },
+    {
+      "name": "indoor-high-field",
+      "quality": 2,
+      "arena": 2,
+      "view": "field",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "487586cc9ab48ec02be53e9ef5c8c229799323028b7bfd108f40d1e8794a008a",
+        "candidate": "487586cc9ab48ec02be53e9ef5c8c229799323028b7bfd108f40d1e8794a008a"
+      }
+    },
+    {
+      "name": "maskwa-high-free",
+      "quality": 2,
+      "arena": 3,
+      "view": "free",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "45f520277616e3335bf31679dbf11e330e474ac16a203421195e593093224b85",
+        "candidate": "45f520277616e3335bf31679dbf11e330e474ac16a203421195e593093224b85"
+      }
+    },
+    {
+      "name": "night-medium-bloom",
+      "quality": 1,
+      "arena": 1,
+      "view": "close",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "4c9bc0406133625bda62eaeeb1d083156ad4476fba7318215758ae33434680f1",
+        "candidate": "4c9bc0406133625bda62eaeeb1d083156ad4476fba7318215758ae33434680f1"
+      }
+    },
+    {
+      "name": "overview-name-restored",
+      "quality": 1,
+      "arena": 0,
+      "view": "close",
+      "event": "restore",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "831b3017a63bb79f5c380d790fef75eeeef4094ba28b9f85bc2e00aec56f268e",
+        "candidate": "831b3017a63bb79f5c380d790fef75eeeef4094ba28b9f85bc2e00aec56f268e"
+      }
+    },
+    {
+      "name": "pad-pickup",
+      "quality": 1,
+      "arena": 0,
+      "view": "pads",
+      "event": "pickup",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "714e7436b8f7f406725544438d92fde8430c1a15232cc69beba76fcdc37b84e9",
+        "candidate": "714e7436b8f7f406725544438d92fde8430c1a15232cc69beba76fcdc37b84e9"
+      }
+    },
+    {
+      "name": "pad-respawn",
+      "quality": 1,
+      "arena": 0,
+      "view": "pads",
+      "event": "respawn",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "82d32afae420c41ea29d570391069d663ea33fef26e8a19cf74c87678786950a",
+        "candidate": "82d32afae420c41ea29d570391069d663ea33fef26e8a19cf74c87678786950a"
+      }
+    },
+    {
+      "name": "portrait-high-follow-hidden",
+      "quality": 2,
+      "arena": 0,
+      "view": "close",
+      "event": "follow",
+      "portrait": true,
+      "width": 600,
+      "height": 960,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "aaa4e01aceda11dd544b24bbf48739fa95a7f8fcb1c0a0cae72ad60db4a83059",
+        "candidate": "aaa4e01aceda11dd544b24bbf48739fa95a7f8fcb1c0a0cae72ad60db4a83059"
+      }
+    },
+    {
+      "name": "portrait-medium-broadcast",
+      "quality": 1,
+      "arena": 1,
+      "view": "broadcast",
+      "portrait": true,
+      "width": 600,
+      "height": 960,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "340142bd2e63e3487ea15bbdf63aeb491665a0f31c48e483d6563d194bb2d0d3",
+        "candidate": "340142bd2e63e3487ea15bbdf63aeb491665a0f31c48e483d6563d194bb2d0d3"
+      }
+    },
+    {
+      "name": "rename-hidden-then-show",
+      "quality": 1,
+      "arena": 0,
+      "view": "close",
+      "event": "rename",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "a1d9ffb8c49cef82c882f4a0bd484d10c183b5d4c3a0e335e683e8d2c0b17cee",
+        "candidate": "a1d9ffb8c49cef82c882f4a0bd484d10c183b5d4c3a0e335e683e8d2c0b17cee"
+      }
+    },
+    {
+      "name": "respawn",
+      "quality": 1,
+      "arena": 1,
+      "view": "close",
+      "event": "undemo",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "1b5aa07604aa8f0db778ccee8345359dd025c8ef98a635234a5b6446286e72ae",
+        "candidate": "1b5aa07604aa8f0db778ccee8345359dd025c8ef98a635234a5b6446286e72ae"
+      }
+    },
+    {
+      "name": "trail-motion-early",
+      "quality": 1,
+      "arena": 0,
+      "view": "close",
+      "frames": 5,
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "da0680791f0feca665527835ed92f9f3e3ba778ff9a839da697936052ed4e775",
+        "candidate": "da0680791f0feca665527835ed92f9f3e3ba778ff9a839da697936052ed4e775"
+      }
+    },
+    {
+      "name": "trail-motion-middle",
+      "quality": 1,
+      "arena": 0,
+      "view": "close",
+      "frames": 20,
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "2bf958dae6624c5a9ae1de2487cf18ea21588b72960886a6c9b585effd5b814a",
+        "candidate": "2bf958dae6624c5a9ae1de2487cf18ea21588b72960886a6c9b585effd5b814a"
+      }
+    },
+    {
+      "name": "trails-faded",
+      "quality": 1,
+      "arena": 0,
+      "view": "close",
+      "event": "fade",
+      "width": 960,
+      "height": 600,
+      "passed": true,
+      "differentPixels": 0,
+      "maxChannelDelta": 0,
+      "meanChannelDelta": 0,
+      "captureSha256": {
+        "baseline": "71b39fc5b25cd91630c7d9965d760f05deef4781392dbe8461208492dfd11db2",
+        "candidate": "71b39fc5b25cd91630c7d9965d760f05deef4781392dbe8461208492dfd11db2"
+      }
+    }
+  ],
+  "ribbonRegression": {
+    "baselineCommit": "c57fd439b5d89cab43e384c5f43ef7aeba23588b",
+    "fixture": "Vite-built exact Git baseline and candidate; actual Three Mesh/BufferGeometry/Vector3; no WebGL",
+    "comparisons": 52387,
+    "scenarios": [
+      {
+        "maxPoints": 0,
+        "cases": "motion, camera movement, stationary, fade/expiry, exact lifetime, clear/reuse, wrap, collinear, movement threshold, emitter aliasing"
+      },
+      {
+        "maxPoints": 1,
+        "cases": "motion, camera movement, stationary, fade/expiry, exact lifetime, clear/reuse, wrap, collinear, movement threshold, emitter aliasing"
+      },
+      {
+        "maxPoints": 2,
+        "cases": "motion, camera movement, stationary, fade/expiry, exact lifetime, clear/reuse, wrap, collinear, movement threshold, emitter aliasing"
+      },
+      {
+        "maxPoints": 10,
+        "cases": "motion, camera movement, stationary, fade/expiry, exact lifetime, clear/reuse, wrap, collinear, movement threshold, emitter aliasing"
+      },
+      {
+        "maxPoints": 16,
+        "cases": "motion, camera movement, stationary, fade/expiry, exact lifetime, clear/reuse, wrap, collinear, movement threshold, emitter aliasing"
+      }
+    ],
+    "allocationResults": [
+      {
+        "maxPoints": 16,
+        "warmedMovingFrames": 10000,
+        "baseline": {
+          "points": 10000,
+          "vectors": 10000
+        },
+        "candidate": {
+          "points": 0,
+          "vectors": 0
+        },
+        "clearExpiryRefillCycles": 100,
+        "retainedPoints": 16,
+        "retainedVectors": 16
+      },
+      {
+        "maxPoints": 10,
+        "warmedMovingFrames": 10000,
+        "baseline": {
+          "points": 10000,
+          "vectors": 10000
+        },
+        "candidate": {
+          "points": 0,
+          "vectors": 0
+        },
+        "clearExpiryRefillCycles": 100,
+        "retainedPoints": 10,
+        "retainedVectors": 10
+      }
+    ],
+    "limits": "Counts cover TrailPoint objects and their owned Vector3 only, not all runtime allocations or heap bytes. No rendered visual or GPU/frame-time acceptance."
+  },
+  "checksPassed": [
+    "npm run test:ribbons",
+    "npm run test:pad-render",
+    "npm run test:nameplates",
+    "npm run build",
+    "git diff --check",
+    "./node_modules/.bin/tsc --project qa/tsconfig.visual.json"
+  ],
+  "review": "Final independent Sol high review: no material findings in Ribbon reuse or visual harness. Inspected four final image pairs and verified all 19 PNG pairs byte-identical. Initial Terra review also found no visible mismatch; final corrected fixture was reviewed by Sol and parent.",
+  "fixtureNotes": "Uses real blue/orange Team values and blue goal explosion; typed fixture inputs."
+}

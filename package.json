@@ -25,12 +25,14 @@
     "test:spectator-scratch": "node qa/run-spectator-scratch.mjs",
     "test:pad-render": "node qa/pad-render-updates.mjs",
     "test:nameplates": "node qa/nameplate-reuse.mjs",
-    "test:hotpaths": "npm run test:friction-allocation && npm run test:spectator-scratch && npm run test:pad-render && npm run test:nameplates",
+    "test:hotpaths": "npm run test:friction-allocation && npm run test:spectator-scratch && npm run test:pad-render && npm run test:nameplates && npm run test:ribbons",
     "test:retry": "node qa/run-retry.mjs",
     "test:private": "node qa/run-private.mjs",
     "test:spectator-host": "node qa/run-spectator-host.mjs",
     "test:host-startup": "node qa/run-host-startup.mjs",
-    "test:spectator-admission": "node qa/run-spectator-admission.mjs"
+    "test:spectator-admission": "node qa/run-spectator-admission.mjs",
+    "test:ribbons": "node qa/ribbon-reuse.mjs",
+    "qa:visual": "tsc --project qa/tsconfig.visual.json && node qa/render-visual-server.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.20.0",
